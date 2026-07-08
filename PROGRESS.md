@@ -11,8 +11,9 @@
   - host/mock CTest 测试标签。
   - 阶段 2 ETE/TRBE register definitions 初版。
   - sysreg wrapper host/mock 隔离层。
+  - 阶段 3 feature probe MVP。
+  - mock probe 环境变量覆盖：`ETE_TRBE_MOCK_HAS_ETE` / `ETE_TRBE_MOCK_HAS_TRBE`。
 - 未完成：
-  - target feature probe。
   - 经目标工具链验证的完整 TRC/TRB sysreg encoding 读写。
   - TRBE buffer allocation / wrap handling。
   - ETE/TRBE start/stop。
@@ -25,6 +26,7 @@
   - `make HOST_MOCK=1`
   - `make test`
   - `./build-host/test_sysreg_mock`
+  - `ETE_TRBE_MOCK_HAS_ETE=1 ETE_TRBE_MOCK_HAS_TRBE=1 ./build-host/ete_trace probe --cpu 0`
   - `./build-host/ete_trace probe`
 
 ## Last Verified
@@ -36,7 +38,7 @@ Host/Mac tests:
   - `make test`
   - `./build-host/ete_trace probe`
   - `git diff --check`
-- 结果：阶段 1 和阶段 2 均通过。`cmake` 当前 Mac shell 不可用，因此使用 Makefile fallback 完成 host/mock 验证。
+- 结果：阶段 1、阶段 2、阶段 3 均通过。`cmake` 当前 Mac shell 不可用，因此使用 Makefile fallback 完成 host/mock 验证。
 
 Target build:
 - 是否已验证：否。
@@ -48,11 +50,11 @@ Hardware validation:
 
 ## Next Steps
 
-1. 阶段 3：实现 feature probe。
-2. 阶段 4：实现 TRBE buffer 和完整 metadata。
-3. 阶段 5：实现 ETE/TRBE start/stop 状态机。
+1. 阶段 4：实现 TRBE buffer 和完整 metadata。
+2. 阶段 5：实现 ETE/TRBE start/stop 状态机。
+3. 阶段 6：扩展采集 CLI record/dump/status。
 
 ## Hardware Validation Needed
 
 - 是否需要 Armv9-A FEAT_ETE/FEAT_TRBE 真机验证：是。
-- 当前哪些功能只通过 mock：`ete_trace probe`、metadata JSON writer、sysreg wrapper mock path、host/mock tests。
+- 当前哪些功能只通过 mock：`ete_trace probe`、metadata JSON writer、sysreg wrapper mock path、mock feature override、host/mock tests。

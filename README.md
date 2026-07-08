@@ -49,6 +49,13 @@ FEAT_TRBE: mock
 Status: host mock only, hardware validation required
 ```
 
+Mock tests can explicitly simulate feature presence without claiming real
+hardware validation:
+
+```sh
+ETE_TRBE_MOCK_HAS_ETE=1 ETE_TRBE_MOCK_HAS_TRBE=1 ./build-host/ete_trace probe
+```
+
 ## Target Build Placeholder
 
 Real target support must be enabled explicitly:
@@ -76,6 +83,7 @@ Implemented in the first stage:
 - CMake project skeleton.
 - Public capture/probe data structures.
 - Host/mock `ete_trace probe`.
+- `ete_trace probe --cpu N` argument parsing.
 - Minimal metadata JSON writer.
 - CTest host/mock tests.
 - ETE/TRBE register name and bit definitions.

@@ -12,6 +12,14 @@ extern "C" {
 #define ETE_TRBE_TRCIDR_COUNT 14u
 #define ETE_TRBE_METADATA_MIN_CAPACITY 768u
 
+enum ete_trbe_status {
+    ETE_TRBE_OK = 0,
+    ETE_TRBE_ERR_INVALID_ARGUMENT = -1,
+    ETE_TRBE_ERR_UNSUPPORTED = -2,
+    ETE_TRBE_ERR_PERMISSION = -3,
+    ETE_TRBE_ERR_IO = -4
+};
+
 struct ete_trbe_caps {
     bool has_ete;
     bool has_trbe;
@@ -55,6 +63,7 @@ struct ete_trbe_result {
 };
 
 const char *ete_trbe_version(void);
+const char *ete_trbe_strerror(int status);
 
 int ete_trbe_probe_cpu(unsigned int cpu, struct ete_trbe_caps *caps);
 
