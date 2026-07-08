@@ -17,7 +17,8 @@ enum ete_trbe_status {
     ETE_TRBE_ERR_INVALID_ARGUMENT = -1,
     ETE_TRBE_ERR_UNSUPPORTED = -2,
     ETE_TRBE_ERR_PERMISSION = -3,
-    ETE_TRBE_ERR_IO = -4
+    ETE_TRBE_ERR_IO = -4,
+    ETE_TRBE_ERR_BAD_STATE = -5
 };
 
 struct ete_trbe_caps {

@@ -90,6 +90,7 @@ Implemented in the first stage:
 - Sysreg wrapper boundary that compiles to mock/unsupported by default.
 - Host/mock TRBE buffer allocation, free, valid-size calculation, and wrap
   linearization.
+- Host/mock capture state machine for config/start/stop.
 - Metadata JSON includes TRCIDR placeholders, ETE config placeholders, and image
   address fields.
 
@@ -97,6 +98,7 @@ Not implemented yet:
 
 - Target physical/translation-regime buffer setup and cache maintenance.
 - ETE/TRBE start/stop sequencing.
+- Real ETE/TRBE start/stop sequencing.
 - `record`, `dump`, and `status` commands.
 - Raw ETE packet decoding and AArch64 flow recovery.
 

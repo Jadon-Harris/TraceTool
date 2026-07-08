@@ -10,6 +10,23 @@
 #include <string.h>
 
 #define ETE_TRBE_BUFFER_ALIGNMENT 4096u
+#define ETE_TRBE_MAX_CPUS 256u
+
+enum capture_state {
+    CAPTURE_IDLE = 0,
+    CAPTURE_CONFIGURED,
+    CAPTURE_RUNNING,
+    CAPTURE_STOPPED
+};
+
+struct capture_slot {
+    enum capture_state state;
+    struct ete_trbe_config config;
+    struct ete_trbe_buffer buffer;
+    struct ete_trbe_result result;
+};
+
+static struct capture_slot g_capture_slots[ETE_TRBE_MAX_CPUS];
 
 const char *ete_trbe_version(void)
 {
@@ -29,6 +46,8 @@ const char *ete_trbe_strerror(int status)
         return "trace register access denied or trapped";
     case ETE_TRBE_ERR_IO:
         return "I/O error";
+    case ETE_TRBE_ERR_BAD_STATE:
+        return "invalid capture state";
     default:
         return "unknown error";
     }
@@ -190,24 +209,88 @@ int ete_trbe_config_cpu(unsigned int cpu,
                         const struct ete_trbe_config *cfg,
                         const struct ete_trbe_buffer *buf)
 {
-    (void)cpu;
-    (void)cfg;
-    (void)buf;
+    struct capture_slot *slot;
+
+    if (cpu >= ETE_TRBE_MAX_CPUS || cfg == NULL || buf == NULL ||
+        buf->vaddr == NULL || buf->size == 0) {
+        return ETE_TRBE_ERR_INVALID_ARGUMENT;
+    }
+
+#if defined(ETE_TRBE_TARGET) && defined(__aarch64__)
     return ETE_TRBE_ERR_UNSUPPORTED;
+#else
+    slot = &g_capture_slots[cpu];
+    if (slot->state == CAPTURE_RUNNING) {
+        return ETE_TRBE_ERR_BAD_STATE;
+    }
+
+    memset(slot, 0, sizeof(*slot));
+    slot->config = *cfg;
+    slot->buffer = *buf;
+    slot->state = CAPTURE_CONFIGURED;
+    return ETE_TRBE_OK;
+#endif
 }
 
 int ete_trbe_start_cpu(unsigned int cpu)
 {
-    (void)cpu;
+    struct capture_slot *slot;
+
+    if (cpu >= ETE_TRBE_MAX_CPUS) {
+        return ETE_TRBE_ERR_INVALID_ARGUMENT;
+    }
+
+#if defined(ETE_TRBE_TARGET) && defined(__aarch64__)
+    /*
+     * Target implementation must configure the sink before enabling ETE:
+     * program TRBE, enable TRBLIMITR_EL1.E, synchronize, then set
+     * TRCPRGCTLR.EN with bounded TRCSTATR polling.
+     */
     return ETE_TRBE_ERR_UNSUPPORTED;
+#else
+    slot = &g_capture_slots[cpu];
+    if (slot->state != CAPTURE_CONFIGURED && slot->state != CAPTURE_STOPPED) {
+        return ETE_TRBE_ERR_BAD_STATE;
+    }
+
+    slot->state = CAPTURE_RUNNING;
+    return ETE_TRBE_OK;
+#endif
 }
 
 int ete_trbe_stop_cpu(unsigned int cpu,
                       struct ete_trbe_result *result)
 {
-    (void)cpu;
-    (void)result;
+    struct capture_slot *slot;
+
+    if (cpu >= ETE_TRBE_MAX_CPUS || result == NULL) {
+        return ETE_TRBE_ERR_INVALID_ARGUMENT;
+    }
+
+#if defined(ETE_TRBE_TARGET) && defined(__aarch64__)
+    /*
+     * Target implementation must stop source before sink: disable program-flow
+     * trace, ISB, TSB CSYNC, DSB, bounded TRCSTATR polling, then disable TRBE
+     * and read final TRB state.
+     */
     return ETE_TRBE_ERR_UNSUPPORTED;
+#else
+    slot = &g_capture_slots[cpu];
+    if (slot->state != CAPTURE_RUNNING) {
+        return ETE_TRBE_ERR_BAD_STATE;
+    }
+
+    memset(&slot->result, 0, sizeof(slot->result));
+    slot->result.trbptr = slot->buffer.write_ptr;
+    slot->result.trblimitr = slot->buffer.limit;
+    slot->result.trbbaser = slot->buffer.base;
+    slot->result.wrapped = slot->buffer.wrapped;
+    slot->result.valid_size = ete_trbe_buffer_valid_size(&slot->buffer);
+
+    *result = slot->result;
+    slot->state = CAPTURE_STOPPED;
+    return ETE_TRBE_OK;
+#endif
 }
 
 int ete_trbe_dump_cpu(unsigned int cpu,

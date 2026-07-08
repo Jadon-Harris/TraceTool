@@ -62,3 +62,10 @@ target_include_directories(test_sysreg_mock PRIVATE
 )
 add_test(NAME mock_sysreg COMMAND test_sysreg_mock)
 set_tests_properties(mock_sysreg PROPERTIES LABELS "mock")
+
+add_executable(test_capture_state_mock
+    tests/mock/test_capture_state_mock.c
+)
+target_link_libraries(test_capture_state_mock PRIVATE ete_trbe)
+add_test(NAME mock_capture_state COMMAND test_capture_state_mock)
+set_tests_properties(mock_capture_state PROPERTIES LABELS "mock")
