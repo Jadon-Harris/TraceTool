@@ -88,11 +88,14 @@ Implemented in the first stage:
 - CTest host/mock tests.
 - ETE/TRBE register name and bit definitions.
 - Sysreg wrapper boundary that compiles to mock/unsupported by default.
+- Host/mock TRBE buffer allocation, free, valid-size calculation, and wrap
+  linearization.
+- Metadata JSON includes TRCIDR placeholders, ETE config placeholders, and image
+  address fields.
 
 Not implemented yet:
 
-- Real target feature probing.
-- TRBE buffer allocation and wrap handling.
+- Target physical/translation-regime buffer setup and cache maintenance.
 - ETE/TRBE start/stop sequencing.
 - `record`, `dump`, and `status` commands.
 - Raw ETE packet decoding and AArch64 flow recovery.

@@ -12,17 +12,21 @@ endif
 LIB_OBJ := $(BUILD_DIR)/src/ete_trbe.o
 TRACE_OBJ := $(BUILD_DIR)/tools/ete_trace/ete_trace.o
 UNIT_OBJ := $(BUILD_DIR)/tests/unit/test_metadata_json.o
+RING_OBJ := $(BUILD_DIR)/tests/unit/test_ring_buffer.o
 MOCK_OBJ := $(BUILD_DIR)/tests/mock/test_mock_probe.o
 SYSREG_MOCK_OBJ := $(BUILD_DIR)/tests/mock/test_sysreg_mock.o
 
 .PHONY: all test clean
 
-all: $(BUILD_DIR)/ete_trace $(BUILD_DIR)/test_metadata_json $(BUILD_DIR)/test_mock_probe $(BUILD_DIR)/test_sysreg_mock
+all: $(BUILD_DIR)/ete_trace $(BUILD_DIR)/test_metadata_json $(BUILD_DIR)/test_ring_buffer $(BUILD_DIR)/test_mock_probe $(BUILD_DIR)/test_sysreg_mock
 
 $(BUILD_DIR)/ete_trace: $(TRACE_OBJ) $(LIB_OBJ)
 	$(CC) $(LDFLAGS) -o $@ $^
 
 $(BUILD_DIR)/test_metadata_json: $(UNIT_OBJ) $(LIB_OBJ)
+	$(CC) $(LDFLAGS) -o $@ $^
+
+$(BUILD_DIR)/test_ring_buffer: $(RING_OBJ) $(LIB_OBJ)
 	$(CC) $(LDFLAGS) -o $@ $^
 
 $(BUILD_DIR)/test_mock_probe: $(MOCK_OBJ) $(LIB_OBJ)
@@ -37,6 +41,7 @@ $(BUILD_DIR)/%.o: %.c include/ete_trbe.h
 
 test: all
 	$(BUILD_DIR)/test_metadata_json
+	$(BUILD_DIR)/test_ring_buffer
 	$(BUILD_DIR)/test_mock_probe
 	$(BUILD_DIR)/test_sysreg_mock
 

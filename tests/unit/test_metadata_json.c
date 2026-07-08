@@ -43,6 +43,9 @@ int main(void)
     if (require_contains(json, "\"format\": \"ete-trbe-raw-v1\"") != 0 ||
         require_contains(json, "\"capture_mode\": \"mock\"") != 0 ||
         require_contains(json, "\"hardware_validated\": false") != 0 ||
+        require_contains(json, "\"TRCIDR13\": \"0x0\"") != 0 ||
+        require_contains(json, "\"TRCCONFIGR\": \"0x0\"") != 0 ||
+        require_contains(json, "\"text_offset\": \"0x0\"") != 0 ||
         require_contains(json, "\"path\": \"app.elf\"") != 0) {
         return 1;
     }

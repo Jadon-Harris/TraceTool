@@ -10,7 +10,7 @@ extern "C" {
 #endif
 
 #define ETE_TRBE_TRCIDR_COUNT 14u
-#define ETE_TRBE_METADATA_MIN_CAPACITY 768u
+#define ETE_TRBE_METADATA_MIN_CAPACITY 2048u
 
 enum ete_trbe_status {
     ETE_TRBE_OK = 0,
@@ -69,6 +69,11 @@ int ete_trbe_probe_cpu(unsigned int cpu, struct ete_trbe_caps *caps);
 
 int ete_trbe_alloc_buffer(unsigned int cpu, size_t size,
                           struct ete_trbe_buffer *buf);
+void ete_trbe_free_buffer(struct ete_trbe_buffer *buf);
+size_t ete_trbe_buffer_valid_size(const struct ete_trbe_buffer *buf);
+int ete_trbe_copy_valid_trace(const struct ete_trbe_buffer *buf,
+                              uint8_t *out, size_t out_size,
+                              size_t *bytes_written);
 
 int ete_trbe_config_cpu(unsigned int cpu,
                         const struct ete_trbe_config *cfg,

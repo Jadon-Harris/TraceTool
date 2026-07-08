@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200112L
+
 #include "ete_trbe.h"
 
 #include "ete_trbe_regs.h"
@@ -6,6 +8,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+
+#define ETE_TRBE_BUFFER_ALIGNMENT 4096u
 
 const char *ete_trbe_version(void)
 {
@@ -91,9 +95,95 @@ int ete_trbe_alloc_buffer(unsigned int cpu, size_t size,
                           struct ete_trbe_buffer *buf)
 {
     (void)cpu;
-    (void)size;
-    (void)buf;
-    return ETE_TRBE_ERR_UNSUPPORTED;
+    void *mem = NULL;
+
+    if (buf == NULL || size == 0 ||
+        (size % ETE_TRBE_BUFFER_ALIGNMENT) != 0) {
+        return ETE_TRBE_ERR_INVALID_ARGUMENT;
+    }
+
+    if (posix_memalign(&mem, ETE_TRBE_BUFFER_ALIGNMENT, size) != 0) {
+        return ETE_TRBE_ERR_IO;
+    }
+
+    memset(mem, 0, size);
+    memset(buf, 0, sizeof(*buf));
+    buf->vaddr = mem;
+    buf->paddr = 0;
+    buf->size = size;
+    buf->base = (uint64_t)(uintptr_t)mem;
+    buf->limit = buf->base + size;
+    buf->write_ptr = buf->base;
+    buf->wrapped = false;
+
+    return ETE_TRBE_OK;
+}
+
+void ete_trbe_free_buffer(struct ete_trbe_buffer *buf)
+{
+    if (buf == NULL) {
+        return;
+    }
+
+    free(buf->vaddr);
+    memset(buf, 0, sizeof(*buf));
+}
+
+size_t ete_trbe_buffer_valid_size(const struct ete_trbe_buffer *buf)
+{
+    if (buf == NULL || buf->size == 0 ||
+        buf->write_ptr < buf->base || buf->write_ptr > buf->limit) {
+        return 0;
+    }
+
+    if (buf->wrapped) {
+        return buf->size;
+    }
+
+    return (size_t)(buf->write_ptr - buf->base);
+}
+
+int ete_trbe_copy_valid_trace(const struct ete_trbe_buffer *buf,
+                              uint8_t *out, size_t out_size,
+                              size_t *bytes_written)
+{
+    size_t valid;
+    size_t head;
+    size_t tail;
+    size_t write_off;
+    const uint8_t *base;
+
+    if (bytes_written != NULL) {
+        *bytes_written = 0;
+    }
+
+    if (buf == NULL || out == NULL || buf->vaddr == NULL ||
+        buf->write_ptr < buf->base || buf->write_ptr > buf->limit) {
+        return ETE_TRBE_ERR_INVALID_ARGUMENT;
+    }
+
+    valid = ete_trbe_buffer_valid_size(buf);
+    if (out_size < valid) {
+        return ETE_TRBE_ERR_INVALID_ARGUMENT;
+    }
+
+    base = (const uint8_t *)buf->vaddr;
+    write_off = (size_t)(buf->write_ptr - buf->base);
+
+    if (!buf->wrapped) {
+        memcpy(out, base, valid);
+    } else {
+        head = buf->size - write_off;
+        tail = write_off;
+        memcpy(out, base + write_off, head);
+        memcpy(out + head, base, tail);
+    }
+
+    if (bytes_written != NULL) {
+        *bytes_written = valid;
+    }
+
+    return ETE_TRBE_OK;
 }
 
 int ete_trbe_config_cpu(unsigned int cpu,
@@ -166,8 +256,33 @@ int ete_trbe_write_metadata_json(char *out, size_t out_size,
                        "  \"wrapped\": %s,\n"
                        "  \"trbsr\": \"0x%llx\",\n"
                        "  \"trbidr\": \"0x%llx\",\n"
+                       "  \"trcidr\": {\n"
+                       "    \"TRCIDR0\": \"0x%llx\",\n"
+                       "    \"TRCIDR1\": \"0x%llx\",\n"
+                       "    \"TRCIDR2\": \"0x%llx\",\n"
+                       "    \"TRCIDR3\": \"0x%llx\",\n"
+                       "    \"TRCIDR4\": \"0x%llx\",\n"
+                       "    \"TRCIDR5\": \"0x%llx\",\n"
+                       "    \"TRCIDR6\": \"0x%llx\",\n"
+                       "    \"TRCIDR7\": \"0x%llx\",\n"
+                       "    \"TRCIDR8\": \"0x%llx\",\n"
+                       "    \"TRCIDR9\": \"0x%llx\",\n"
+                       "    \"TRCIDR10\": \"0x%llx\",\n"
+                       "    \"TRCIDR11\": \"0x%llx\",\n"
+                       "    \"TRCIDR12\": \"0x%llx\",\n"
+                       "    \"TRCIDR13\": \"0x%llx\"\n"
+                       "  },\n"
+                       "  \"ete_config\": {\n"
+                       "    \"TRCCONFIGR\": \"0x0\",\n"
+                       "    \"TRCTRACEIDR\": \"0x0\",\n"
+                       "    \"TRCSYNCPR\": \"0x0\",\n"
+                       "    \"TRCVICTLR\": \"0x0\"\n"
+                       "  },\n"
                        "  \"image\": {\n"
-                       "    \"path\": \"%s\"\n"
+                       "    \"path\": \"%s\",\n"
+                       "    \"load_base\": \"0x0\",\n"
+                       "    \"text_vaddr\": \"0x0\",\n"
+                       "    \"text_offset\": \"0x0\"\n"
                        "  },\n"
                        "  \"warnings\": []\n"
                        "}\n",
@@ -181,6 +296,20 @@ int ete_trbe_write_metadata_json(char *out, size_t out_size,
                        (buffer != NULL && buffer->wrapped) ? "true" : "false",
                        (unsigned long long)(result != NULL ? result->trbsr : 0u),
                        (unsigned long long)caps->trbidr_el1,
+                       (unsigned long long)caps->trcidr[0],
+                       (unsigned long long)caps->trcidr[1],
+                       (unsigned long long)caps->trcidr[2],
+                       (unsigned long long)caps->trcidr[3],
+                       (unsigned long long)caps->trcidr[4],
+                       (unsigned long long)caps->trcidr[5],
+                       (unsigned long long)caps->trcidr[6],
+                       (unsigned long long)caps->trcidr[7],
+                       (unsigned long long)caps->trcidr[8],
+                       (unsigned long long)caps->trcidr[9],
+                       (unsigned long long)caps->trcidr[10],
+                       (unsigned long long)caps->trcidr[11],
+                       (unsigned long long)caps->trcidr[12],
+                       (unsigned long long)caps->trcidr[13],
                        image);
 
     if (written < 0 || (size_t)written >= out_size) {
