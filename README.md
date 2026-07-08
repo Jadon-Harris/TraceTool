@@ -67,6 +67,18 @@ In host/mock mode the raw file can be empty because no hardware trace is
 generated. The metadata warning records that hardware validation is still
 required.
 
+Run the decoder skeleton:
+
+```sh
+python3 tools/ete_decode/ete_decode.py \
+  --trace trace_cpu0.bin \
+  --meta trace_cpu0.json \
+  --image app.elf \
+  --out-flow flow.json \
+  --out-branches branches.csv \
+  --out-dot flow.dot
+```
+
 ## Target Build Placeholder
 
 Real target support must be enabled explicitly:
@@ -103,6 +115,8 @@ Implemented in the first stage:
   linearization.
 - Host/mock capture state machine for config/start/stop.
 - `ete_trace record` one-shot CLI for raw/metadata file output.
+- `ete_decode.py` skeleton that reads trace, metadata, and image inputs and
+  writes `flow.json`, `branches.csv`, and `flow.dot`.
 - Metadata JSON includes TRCIDR placeholders, ETE config placeholders, and image
   address fields.
 

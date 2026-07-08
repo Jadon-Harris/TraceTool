@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.16)
 project(TraceTool LANGUAGES C)
 
 option(ETE_TRBE_TARGET "Build real AArch64 ETE/TRBE target support" OFF)
+find_package(Python3 COMPONENTS Interpreter)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -45,6 +46,13 @@ add_executable(test_ring_buffer
 target_link_libraries(test_ring_buffer PRIVATE ete_trbe)
 add_test(NAME unit_ring_buffer COMMAND test_ring_buffer)
 set_tests_properties(unit_ring_buffer PROPERTIES LABELS "host")
+
+if(Python3_Interpreter_FOUND)
+    add_test(NAME unit_decoder_skeleton
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/unit/test_decoder_skeleton.py
+    )
+    set_tests_properties(unit_decoder_skeleton PROPERTIES LABELS "host")
+endif()
 
 add_executable(test_mock_probe
     tests/mock/test_mock_probe.c

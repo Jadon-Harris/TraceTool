@@ -49,6 +49,7 @@ test: all
 	$(BUILD_DIR)/test_mock_probe
 	$(BUILD_DIR)/test_sysreg_mock
 	$(BUILD_DIR)/test_capture_state_mock
+	python3 tests/unit/test_decoder_skeleton.py
 
 clean:
 	rm -rf build-host build-target build
