@@ -45,3 +45,13 @@ add_executable(test_mock_probe
 target_link_libraries(test_mock_probe PRIVATE ete_trbe)
 add_test(NAME mock_probe COMMAND test_mock_probe)
 set_tests_properties(mock_probe PROPERTIES LABELS "mock")
+
+add_executable(test_sysreg_mock
+    tests/mock/test_sysreg_mock.c
+)
+target_link_libraries(test_sysreg_mock PRIVATE ete_trbe)
+target_include_directories(test_sysreg_mock PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+add_test(NAME mock_sysreg COMMAND test_sysreg_mock)
+set_tests_properties(mock_sysreg PROPERTIES LABELS "mock")

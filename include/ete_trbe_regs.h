@@ -1,0 +1,57 @@
+#ifndef ETE_TRBE_REGS_H
+#define ETE_TRBE_REGS_H
+
+#include <stdint.h>
+
+/*
+ * ETE/TRBE register names used by this project. Encoded sysreg access is kept
+ * behind ete_trbe_sysreg.h so host builds never assemble target instructions.
+ */
+
+#define ETE_TRBE_REG_TRCPRGCTLR "TRCPRGCTLR"
+#define ETE_TRBE_REG_TRCSTATR "TRCSTATR"
+#define ETE_TRBE_REG_TRCCONFIGR "TRCCONFIGR"
+#define ETE_TRBE_REG_TRCTRACEIDR "TRCTRACEIDR"
+#define ETE_TRBE_REG_TRCSYNCPR "TRCSYNCPR"
+#define ETE_TRBE_REG_TRCVICTLR "TRCVICTLR"
+#define ETE_TRBE_REG_TRCSTALLCTLR "TRCSTALLCTLR"
+
+#define ETE_TRBE_REG_TRFCR_EL1 "TRFCR_EL1"
+#define ETE_TRBE_REG_TRFCR_EL2 "TRFCR_EL2"
+
+#define ETE_TRBE_REG_TRBBASER_EL1 "TRBBASER_EL1"
+#define ETE_TRBE_REG_TRBLIMITR_EL1 "TRBLIMITR_EL1"
+#define ETE_TRBE_REG_TRBPTR_EL1 "TRBPTR_EL1"
+#define ETE_TRBE_REG_TRBSR_EL1 "TRBSR_EL1"
+#define ETE_TRBE_REG_TRBMAR_EL1 "TRBMAR_EL1"
+#define ETE_TRBE_REG_TRBIDR_EL1 "TRBIDR_EL1"
+#define ETE_TRBE_REG_TRBTRG_EL1 "TRBTRG_EL1"
+
+#define ETE_TRBE_REG_ID_AA64DFR0_EL1 "ID_AA64DFR0_EL1"
+
+#define ETE_TRBE_TRC_PRGCTLR_EN (UINT64_C(1) << 0)
+
+#define ETE_TRBE_TRBLIMITR_E (UINT64_C(1) << 0)
+#define ETE_TRBE_TRBLIMITR_WRAP (UINT64_C(1) << 1)
+#define ETE_TRBE_TRBLIMITR_NVM (UINT64_C(1) << 5)
+
+#define ETE_TRBE_TRBSR_TRG (UINT64_C(1) << 0)
+#define ETE_TRBE_TRBSR_WRAP (UINT64_C(1) << 1)
+#define ETE_TRBE_TRBSR_ABORT (UINT64_C(1) << 2)
+#define ETE_TRBE_TRBSR_EC_SHIFT 26u
+#define ETE_TRBE_TRBSR_EC_MASK (UINT64_C(0x3f) << ETE_TRBE_TRBSR_EC_SHIFT)
+
+#define ETE_TRBE_ID_AA64DFR0_TRACEVER_SHIFT 4u
+#define ETE_TRBE_ID_AA64DFR0_TRACEVER_MASK \
+    (UINT64_C(0xf) << ETE_TRBE_ID_AA64DFR0_TRACEVER_SHIFT)
+#define ETE_TRBE_ID_AA64DFR0_TRACEBUFFER_SHIFT 44u
+#define ETE_TRBE_ID_AA64DFR0_TRACEBUFFER_MASK \
+    (UINT64_C(0xf) << ETE_TRBE_ID_AA64DFR0_TRACEBUFFER_SHIFT)
+
+static inline uint64_t ete_trbe_field_get(uint64_t value, uint64_t mask,
+                                          unsigned int shift)
+{
+    return (value & mask) >> shift;
+}
+
+#endif

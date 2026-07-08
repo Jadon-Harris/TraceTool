@@ -1,5 +1,8 @@
 #include "ete_trbe.h"
 
+#include "ete_trbe_regs.h"
+#include "ete_trbe_sysreg.h"
+
 #include <stdio.h>
 #include <string.h>
 

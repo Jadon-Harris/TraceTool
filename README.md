@@ -78,10 +78,11 @@ Implemented in the first stage:
 - Host/mock `ete_trace probe`.
 - Minimal metadata JSON writer.
 - CTest host/mock tests.
+- ETE/TRBE register name and bit definitions.
+- Sysreg wrapper boundary that compiles to mock/unsupported by default.
 
 Not implemented yet:
 
-- Real system register definitions and access wrappers.
 - Real target feature probing.
 - TRBE buffer allocation and wrap handling.
 - ETE/TRBE start/stop sequencing.
