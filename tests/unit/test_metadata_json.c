@@ -46,6 +46,7 @@ int main(void)
         require_contains(json, "\"TRCIDR13\": \"0x0\"") != 0 ||
         require_contains(json, "\"TRCCONFIGR\": \"0x0\"") != 0 ||
         require_contains(json, "\"text_offset\": \"0x0\"") != 0 ||
+        require_contains(json, "host mock only") != 0 ||
         require_contains(json, "\"path\": \"app.elf\"") != 0) {
         return 1;
     }

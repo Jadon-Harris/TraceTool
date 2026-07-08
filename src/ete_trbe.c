@@ -313,6 +313,7 @@ int ete_trbe_write_metadata_json(char *out, size_t out_size,
     int written;
     const char *mode;
     const char *image;
+    const char *warning;
 
     if (out == NULL || out_size == 0 || caps == NULL) {
         return ETE_TRBE_ERR_INVALID_ARGUMENT;
@@ -320,6 +321,8 @@ int ete_trbe_write_metadata_json(char *out, size_t out_size,
 
     mode = caps->is_mock ? "mock" : "target";
     image = (image_path != NULL) ? image_path : "";
+    warning = caps->is_mock ?
+        "\"host mock only, hardware validation required\"" : "";
 
     written = snprintf(out, out_size,
                        "{\n"
@@ -367,7 +370,7 @@ int ete_trbe_write_metadata_json(char *out, size_t out_size,
                        "    \"text_vaddr\": \"0x0\",\n"
                        "    \"text_offset\": \"0x0\"\n"
                        "  },\n"
-                       "  \"warnings\": []\n"
+                       "  \"warnings\": [%s]\n"
                        "}\n",
                        cpu,
                        mode,
@@ -393,7 +396,8 @@ int ete_trbe_write_metadata_json(char *out, size_t out_size,
                        (unsigned long long)caps->trcidr[11],
                        (unsigned long long)caps->trcidr[12],
                        (unsigned long long)caps->trcidr[13],
-                       image);
+                       image,
+                       warning);
 
     if (written < 0 || (size_t)written >= out_size) {
         return ETE_TRBE_ERR_IO;

@@ -56,6 +56,17 @@ hardware validation:
 ETE_TRBE_MOCK_HAS_ETE=1 ETE_TRBE_MOCK_HAS_TRBE=1 ./build-host/ete_trace probe
 ```
 
+Run a host/mock one-shot record:
+
+```sh
+./build-host/ete_trace record --cpu 0 --size 64K --duration-ms 10 \
+  --image app.elf --out trace_cpu0.bin --meta trace_cpu0.json
+```
+
+In host/mock mode the raw file can be empty because no hardware trace is
+generated. The metadata warning records that hardware validation is still
+required.
+
 ## Target Build Placeholder
 
 Real target support must be enabled explicitly:
@@ -91,6 +102,7 @@ Implemented in the first stage:
 - Host/mock TRBE buffer allocation, free, valid-size calculation, and wrap
   linearization.
 - Host/mock capture state machine for config/start/stop.
+- `ete_trace record` one-shot CLI for raw/metadata file output.
 - Metadata JSON includes TRCIDR placeholders, ETE config placeholders, and image
   address fields.
 
