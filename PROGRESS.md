@@ -32,6 +32,10 @@
   - 阶段 10 dynamic flow recovery MVP。
   - 阶段 10 基于 trace address packet / ELF entry 选择起点，结合 `atom_stream` 的 E/N 结果恢复条件分支 taken/fallthrough。
   - 阶段 10 `flow.json` 输出 `recovered_branches`、`edges`、`flow_recovery`；branches.csv 和 flow.dot 优先输出动态恢复结果。
+  - 阶段 11 synthetic decoder integration sample。
+  - 阶段 11 `tests/support/aarch64_decoder_sample.py` 提供可复用 synthetic trace / metadata / minimal AArch64 ELF fixture。
+  - 阶段 11 `tests/integration/test_decoder_flow_sample.py` 显式验证 decoder 端到端输出 flow.json、branches.csv、flow.dot。
+  - 阶段 11 `docs/decoder_integration_sample.md` 记录 sample 运行方式、预期输出和非硬件验证边界。
 - 未完成：
   - 经目标工具链验证的完整 TRC/TRB sysreg encoding 读写。
   - target 物理连续 buffer、TRBE translation regime 配置和 cache/DMA 同步。
@@ -52,6 +56,7 @@
   - `./build-host/ete_trace record --cpu 0 --size 64K --duration-ms 1 --image app.elf --out trace_cpu0.bin --meta trace_cpu0.json`
   - `python3 tests/unit/test_decoder_skeleton.py`
   - `env PYTHONPYCACHEPREFIX=/private/tmp/etrbe-pycache python3 -m py_compile tools/ete_decode/ete_decode.py tests/unit/test_decoder_skeleton.py`
+  - `python3 tests/integration/test_decoder_flow_sample.py`
   - `ETE_TRBE_MOCK_HAS_ETE=1 ETE_TRBE_MOCK_HAS_TRBE=1 ./build-host/ete_trace probe --cpu 0`
   - `./build-host/ete_trace probe`
 
@@ -60,11 +65,15 @@
 Host/Mac tests:
 - 是否通过：是。
 - 执行命令：
+  - `cmake -S . -B build-host -DETE_TRBE_TARGET=OFF`
+  - `cmake --build build-host`
+  - `ctest --test-dir build-host -LE "target|hardware"`
   - `make HOST_MOCK=1`
   - `make test`
+  - `python3 tests/integration/test_decoder_flow_sample.py`
   - `./build-host/ete_trace probe`
   - `git diff --check`
-- 结果：阶段 1、阶段 2、阶段 3、阶段 4、阶段 5、阶段 6、阶段 7、阶段 8、阶段 9、阶段 10 dynamic flow MVP 均通过。CMake host/mock 路径和 Makefile fallback 均已验证。
+- 结果：阶段 1、阶段 2、阶段 3、阶段 4、阶段 5、阶段 6、阶段 7、阶段 8、阶段 9、阶段 10 dynamic flow MVP、阶段 11 synthetic integration sample 均通过。CMake host/mock 路径和 Makefile fallback 均已验证。
 
 Target build:
 - 是否已验证：否。
@@ -76,10 +85,10 @@ Hardware validation:
 
 ## Next Steps
 
-1. 阶段 11：添加 integration sample 和文档。
-2. 后续增强：完善返回目标、indirect branch、异常和循环恢复。
+1. 后续增强：完善返回目标、indirect branch、异常和循环恢复。
+2. 后续增强：开始 target/aarch64 显式构建验证和真实寄存器编程序列。
 
 ## Hardware Validation Needed
 
 - 是否需要 Armv9-A FEAT_ETE/FEAT_TRBE 真机验证：是。
-- 当前哪些功能只通过 mock：`ete_trace probe`、`ete_trace record` raw/meta 输出、`ete_decode.py` packet parser/speculation/static branch catalog/dynamic flow MVP、metadata JSON writer、TRBE buffer linearize、capture state machine、sysreg wrapper mock path、mock feature override、host/mock tests。
+- 当前哪些功能只通过 mock/synthetic：`ete_trace probe`、`ete_trace record` raw/meta 输出、`ete_decode.py` packet parser/speculation/static branch catalog/dynamic flow MVP、synthetic decoder integration sample、metadata JSON writer、TRBE buffer linearize、capture state machine、sysreg wrapper mock path、mock feature override、host/mock tests。

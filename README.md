@@ -79,6 +79,15 @@ python3 tools/ete_decode/ete_decode.py \
   --out-dot flow.dot
 ```
 
+Run the explicit host-only decoder integration sample:
+
+```sh
+python3 tests/integration/test_decoder_flow_sample.py
+```
+
+This sample is synthetic and does not count as hardware validation. Details are
+in [docs/decoder_integration_sample.md](docs/decoder_integration_sample.md).
+
 ## Target Build Placeholder
 
 Real target support must be enabled explicitly:
@@ -130,6 +139,7 @@ Implemented in the first stage:
   ELF entry, uses resolved E/N atoms for conditional branches, and emits
   recovered branches plus DOT edges until an unresolved return or indirect
   target is reached.
+- Explicit synthetic decoder integration sample and documentation.
 - Metadata JSON includes TRCIDR placeholders, ETE config placeholders, and image
   address fields.
 
