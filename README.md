@@ -123,6 +123,9 @@ Implemented in the first stage:
 - `ete_decode.py` speculation MVP that emits `atom_stream` entries and marks
   atom outcomes as committed, canceled, pending, or mispredict based on
   commit/cancel/mispredict packets.
+- `ete_decode.py` static AArch64 branch catalog MVP for ELF64 little-endian
+  AArch64 images, including common direct, conditional, call, return, and
+  indirect branch instructions.
 - Metadata JSON includes TRCIDR placeholders, ETE config placeholders, and image
   address fields.
 
@@ -134,7 +137,8 @@ Not implemented yet:
 - Persistent `start`, `stop`, and `dump` capture commands.
 - Full ETE packet decoding for all configuration-dependent payload fields.
 - Full speculation resolution across all ETE configuration modes.
-- AArch64 ELF/image flow recovery.
+- Dynamic AArch64 ELF/image flow recovery that merges ETE atoms with the static
+  branch catalog into a real executed path.
 
 ## Offline Workflow Goal
 

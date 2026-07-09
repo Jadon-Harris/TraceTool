@@ -10,6 +10,7 @@ program image or resolve branch targets.
 import argparse
 import csv
 import json
+import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -59,6 +60,31 @@ class AtomResolution:
             item["resolved_by"] = self.resolved_by
         if self.flags:
             item["flags"] = self.flags
+        return item
+
+
+@dataclass
+class BranchInstruction:
+    seq: int
+    pc: int
+    dst: Optional[int]
+    kind: str
+    taken: str
+    symbol_src: str = ""
+    symbol_dst: str = ""
+    flags: list[str] = field(default_factory=list)
+
+    def to_json(self) -> dict:
+        item = {
+            "seq": self.seq,
+            "pc": f"0x{self.pc:x}",
+            "kind": self.kind,
+            "taken": self.taken,
+            "symbol_src": self.symbol_src,
+            "symbol_dst": self.symbol_dst,
+            "flags": self.flags,
+        }
+        item["dst"] = f"0x{self.dst:x}" if self.dst is not None else None
         return item
 
 
@@ -571,31 +597,309 @@ def resolve_speculation(packets: list[EtePacket]) -> tuple[list[AtomResolution],
     return atoms, summary
 
 
-def write_flow(path: Path, trace: bytes, metadata: dict, image: str) -> None:
+def sign_extend(value: int, bits: int) -> int:
+    sign_bit = 1 << (bits - 1)
+    if value & sign_bit:
+        return value - (1 << bits)
+    return value
+
+
+def read_c_string(blob: bytes, offset: int) -> str:
+    if offset < 0 or offset >= len(blob):
+        return ""
+    end = blob.find(b"\x00", offset)
+    if end < 0:
+        end = len(blob)
+    return blob[offset:end].decode("utf-8", errors="replace")
+
+
+def decode_aarch64_branch(insn: int, pc: int) -> Optional[dict]:
+    if (insn & 0x7C000000) == 0x14000000:
+        imm = sign_extend(insn & 0x03FFFFFF, 26) << 2
+        is_link = bool(insn & 0x80000000)
+        return {
+            "kind": "call_direct" if is_link else "branch_direct",
+            "dst": pc + imm,
+            "taken": "always",
+            "flags": ["link"] if is_link else [],
+        }
+
+    if (insn & 0xFF000010) == 0x54000000:
+        imm = sign_extend((insn >> 5) & 0x7FFFF, 19) << 2
+        cond = insn & 0xF
+        return {
+            "kind": "conditional_branch",
+            "dst": pc + imm,
+            "taken": "unknown",
+            "flags": [f"cond={cond}"],
+        }
+
+    if (insn & 0x7E000000) == 0x34000000:
+        imm = sign_extend((insn >> 5) & 0x7FFFF, 19) << 2
+        op = "cbnz" if (insn & (1 << 24)) else "cbz"
+        width = 64 if (insn & (1 << 31)) else 32
+        return {
+            "kind": "conditional_branch",
+            "dst": pc + imm,
+            "taken": "unknown",
+            "flags": [op, f"rt={insn & 0x1f}", f"width={width}"],
+        }
+
+    if (insn & 0x7E000000) == 0x36000000:
+        imm = sign_extend((insn >> 5) & 0x3FFF, 14) << 2
+        bit = ((insn >> 19) & 0x1F) | (((insn >> 31) & 1) << 5)
+        op = "tbnz" if (insn & (1 << 24)) else "tbz"
+        return {
+            "kind": "conditional_branch",
+            "dst": pc + imm,
+            "taken": "unknown",
+            "flags": [op, f"rt={insn & 0x1f}", f"bit={bit}"],
+        }
+
+    if (insn & 0xFFFFFC1F) == 0xD65F0000:
+        return {
+            "kind": "return",
+            "dst": None,
+            "taken": "always",
+            "flags": [f"rn={(insn >> 5) & 0x1f}"],
+        }
+
+    if (insn & 0xFFFFFC1F) == 0xD61F0000:
+        return {
+            "kind": "branch_indirect",
+            "dst": None,
+            "taken": "always",
+            "flags": [f"rn={(insn >> 5) & 0x1f}"],
+        }
+
+    if (insn & 0xFFFFFC1F) == 0xD63F0000:
+        return {
+            "kind": "call_indirect",
+            "dst": None,
+            "taken": "always",
+            "flags": [f"rn={(insn >> 5) & 0x1f}", "link"],
+        }
+
+    if insn == 0xD69F03E0:
+        return {
+            "kind": "exception_return",
+            "dst": None,
+            "taken": "always",
+            "flags": [],
+        }
+
+    return None
+
+
+def find_symbol(symbols: list[dict], addr: Optional[int]) -> str:
+    if addr is None:
+        return ""
+    best = ""
+    best_value = -1
+    for symbol in symbols:
+        value = symbol["value"]
+        size = symbol["size"]
+        if value <= addr and (size == 0 or addr < value + size):
+            if value > best_value:
+                best = symbol["name"]
+                best_value = value
+    return best
+
+
+def parse_elf_symbols(data: bytes, sections: list[dict]) -> list[dict]:
+    symbols = []
+    for section in sections:
+        if section["type"] not in (2, 11) or section["entsize"] == 0:
+            continue
+        if section["link"] >= len(sections):
+            continue
+        strtab = sections[section["link"]]
+        names = data[strtab["offset"]:strtab["offset"] + strtab["size"]]
+        start = section["offset"]
+        end = start + section["size"]
+        for offset in range(start, end, section["entsize"]):
+            if offset + 24 > len(data):
+                break
+            st_name, st_info, _st_other, st_shndx, st_value, st_size = (
+                struct.unpack_from("<IBBHQQ", data, offset)
+            )
+            name = read_c_string(names, st_name)
+            sym_type = st_info & 0x0F
+            if name and sym_type in (0, 2):
+                symbols.append({
+                    "name": name,
+                    "value": st_value,
+                    "size": st_size,
+                    "section_index": st_shndx,
+                })
+    symbols.sort(key=lambda item: item["value"])
+    return symbols
+
+
+def parse_elf_branch_catalog(image_path: str) -> tuple[dict, list[BranchInstruction]]:
+    path = Path(image_path)
+    info = {
+        "path": image_path,
+        "format": "unknown",
+        "machine": None,
+        "entry": None,
+        "text_vaddr": None,
+        "text_size": 0,
+        "symbols": [],
+        "warnings": [],
+    }
+    branches: list[BranchInstruction] = []
+
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        info["warnings"].append(f"image read failed: {exc}")
+        return info, branches
+
+    if len(data) < 64 or not data.startswith(b"\x7fELF"):
+        info["warnings"].append("image is not an ELF file")
+        return info, branches
+    if data[4] != 2 or data[5] != 1:
+        info["warnings"].append("only ELF64 little-endian images are supported")
+        return info, branches
+
+    try:
+        header = struct.unpack_from("<16sHHIQQQIHHHHHH", data, 0)
+    except struct.error as exc:
+        info["warnings"].append(f"ELF header parse failed: {exc}")
+        return info, branches
+
+    machine = header[2]
+    entry = header[4]
+    shoff = header[6]
+    shentsize = header[11]
+    shnum = header[12]
+    shstrndx = header[13]
+    info.update({
+        "format": "elf64-le",
+        "machine": machine,
+        "entry": f"0x{entry:x}",
+    })
+    if machine != 183:
+        info["warnings"].append(f"ELF machine {machine} is not AArch64")
+        return info, branches
+    if shoff == 0 or shentsize < 64 or shnum == 0:
+        info["warnings"].append("ELF section table is missing")
+        return info, branches
+
+    sections = []
+    for index in range(shnum):
+        offset = shoff + index * shentsize
+        if offset + 64 > len(data):
+            info["warnings"].append("ELF section table is truncated")
+            return info, branches
+        fields = struct.unpack_from("<IIQQQQIIQQ", data, offset)
+        sections.append({
+            "index": index,
+            "name_offset": fields[0],
+            "type": fields[1],
+            "flags": fields[2],
+            "addr": fields[3],
+            "offset": fields[4],
+            "size": fields[5],
+            "link": fields[6],
+            "info": fields[7],
+            "addralign": fields[8],
+            "entsize": fields[9],
+            "name": "",
+        })
+
+    if shstrndx >= len(sections):
+        info["warnings"].append("ELF section-name table index is invalid")
+        return info, branches
+    shstr = sections[shstrndx]
+    names = data[shstr["offset"]:shstr["offset"] + shstr["size"]]
+    for section in sections:
+        section["name"] = read_c_string(names, section["name_offset"])
+
+    text = next((section for section in sections if section["name"] == ".text"),
+                None)
+    if text is None:
+        info["warnings"].append("ELF .text section is missing")
+        return info, branches
+
+    symbols = parse_elf_symbols(data, sections)
+    info["text_vaddr"] = f"0x{text['addr']:x}"
+    info["text_size"] = text["size"]
+    info["symbols"] = [
+        {"name": sym["name"], "value": f"0x{sym['value']:x}",
+         "size": sym["size"]}
+        for sym in symbols
+    ]
+
+    text_data = data[text["offset"]:text["offset"] + text["size"]]
+    if len(text_data) < text["size"]:
+        info["warnings"].append("ELF .text section is truncated")
+    for pos in range(0, len(text_data) - (len(text_data) % 4), 4):
+        insn = struct.unpack_from("<I", text_data, pos)[0]
+        pc = text["addr"] + pos
+        decoded = decode_aarch64_branch(insn, pc)
+        if decoded is None:
+            continue
+        branches.append(BranchInstruction(
+            seq=len(branches),
+            pc=pc,
+            dst=decoded["dst"],
+            kind=decoded["kind"],
+            taken=decoded["taken"],
+            symbol_src=find_symbol(symbols, pc),
+            symbol_dst=find_symbol(symbols, decoded["dst"]),
+            flags=decoded["flags"],
+        ))
+
+    return info, branches
+
+
+def decode_trace(trace: bytes, image: str) -> dict:
     packets = parse_trace_packets(trace)
     atom_stream, speculation = resolve_speculation(packets)
+    image_info, branch_catalog = parse_elf_branch_catalog(image)
+    return {
+        "packets": packets,
+        "atom_stream": atom_stream,
+        "speculation": speculation,
+        "image_info": image_info,
+        "branch_catalog": branch_catalog,
+    }
+
+
+def write_flow(path: Path, trace: bytes, metadata: dict, image: str,
+               decoded: dict) -> None:
+    packets = decoded["packets"]
+    atom_stream = decoded["atom_stream"]
+    branch_catalog = decoded["branch_catalog"]
+    warnings = ["dynamic AArch64 flow recovery is not implemented yet"]
+    warnings.extend(decoded["image_info"].get("warnings", []))
     flow = {
         "format": "ete-flow-v1",
-        "decoder_stage": "speculation-mvp",
+        "decoder_stage": "static-branch-mvp",
         "trace_bytes": len(trace),
         "metadata_format": metadata.get("format", "unknown"),
         "image": image,
+        "image_info": decoded["image_info"],
         "packet_count": len(packets),
         "packets": [packet.to_json() for packet in packets],
         "atom_count": len(atom_stream),
         "atom_stream": [atom.to_json() for atom in atom_stream],
-        "speculation": speculation,
+        "speculation": decoded["speculation"],
+        "branch_catalog_count": len(branch_catalog),
+        "branch_catalog": [branch.to_json() for branch in branch_catalog],
         "basic_blocks": [],
         "edges": [],
         "events": packet_events(packets),
-        "warnings": [
-            "AArch64 flow recovery is not implemented yet"
-        ],
+        "warnings": warnings,
     }
     path.write_text(json.dumps(flow, indent=2) + "\n", encoding="utf-8")
 
 
-def write_branches(path: Path) -> None:
+def write_branches(path: Path, branches: list[BranchInstruction],
+                   metadata: dict) -> None:
+    cpu = metadata.get("cpu", "")
     with path.open("w", newline="", encoding="utf-8") as branches_file:
         writer = csv.writer(branches_file)
         writer.writerow(
@@ -614,24 +918,47 @@ def write_branches(path: Path) -> None:
                 "flags",
             ]
         )
+        for branch in branches:
+            writer.writerow([
+                branch.seq,
+                cpu,
+                "",
+                "",
+                "",
+                f"0x{branch.pc:x}",
+                f"0x{branch.dst:x}" if branch.dst is not None else "",
+                branch.symbol_src,
+                branch.symbol_dst,
+                branch.kind,
+                branch.taken,
+                "|".join(branch.flags + ["static"]),
+            ])
 
 
-def write_dot(path: Path) -> None:
-    path.write_text(
-        "digraph ete_flow {\n"
-        "  label=\"ETE decoder MVP\";\n"
-        "  labelloc=\"t\";\n"
-        "}\n",
-        encoding="utf-8",
-    )
+def write_dot(path: Path, branches: list[BranchInstruction]) -> None:
+    lines = [
+        "digraph ete_flow {",
+        "  label=\"ETE static branch catalog MVP\";",
+        "  labelloc=\"t\";",
+    ]
+    for branch in branches:
+        src = f"0x{branch.pc:x}"
+        if branch.dst is None:
+            lines.append(f"  \"{src}\" [label=\"{src}\\n{branch.kind}\"];")
+            continue
+        dst = f"0x{branch.dst:x}"
+        lines.append(f"  \"{src}\" -> \"{dst}\" [label=\"{branch.kind}\"];")
+    lines.append("}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def main() -> int:
     args = parse_args()
     trace, metadata = load_inputs(args)
-    write_flow(Path(args.out_flow), trace, metadata, args.image)
-    write_branches(Path(args.out_branches))
-    write_dot(Path(args.out_dot))
+    decoded = decode_trace(trace, args.image)
+    write_flow(Path(args.out_flow), trace, metadata, args.image, decoded)
+    write_branches(Path(args.out_branches), decoded["branch_catalog"], metadata)
+    write_dot(Path(args.out_dot), decoded["branch_catalog"])
     return 0
 
 
