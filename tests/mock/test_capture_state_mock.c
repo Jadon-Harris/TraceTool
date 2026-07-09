@@ -2,12 +2,18 @@
 
 #include <stdio.h>
 
+/*
+ * Mock capture state-machine test. This exercises lifecycle ordering without
+ * touching target registers or requiring cross-process persistence.
+ */
+
 int main(void)
 {
     struct ete_trbe_buffer buffer;
     struct ete_trbe_config config;
     struct ete_trbe_result result;
 
+    /* Starting before config should be rejected even in the mock path. */
     if (ete_trbe_start_cpu(0) != ETE_TRBE_ERR_BAD_STATE) {
         fprintf(stderr, "start before config should fail with bad state\n");
         return 1;
@@ -55,6 +61,7 @@ int main(void)
         return 1;
     }
 
+    /* Stop should snapshot the mock buffer state into the public result. */
     if (result.trbbaser != buffer.base ||
         result.trblimitr != buffer.limit ||
         result.trbptr != buffer.write_ptr ||

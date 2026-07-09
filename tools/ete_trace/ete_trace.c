@@ -29,6 +29,7 @@ struct record_args {
     const char *meta;
 };
 
+/* Parse human-friendly buffer sizes such as 64K or 1M. */
 static int parse_size_arg(const char *text, size_t *size)
 {
     char *end = NULL;
@@ -73,6 +74,7 @@ static int write_bytes_file(const char *path, const uint8_t *data, size_t size)
     return 0;
 }
 
+/* Keep metadata writes separate from raw writes so record cleanup is simple. */
 static int write_text_file(const char *path, const char *text)
 {
     FILE *file = fopen(path, "wb");
@@ -101,6 +103,7 @@ static int parse_record_args(int argc, char **argv, struct record_args *args)
 {
     int i;
 
+    /* Defaults are intentionally host-safe and require explicit output paths. */
     args->cpu = 0;
     args->size = 1024u * 1024u;
     args->duration_ms = 0;
@@ -190,6 +193,10 @@ static int cmd_probe(int argc, char **argv)
     }
 
     printf("CPU%u:\n", cpu);
+    /*
+     * Mock output is worded loudly so logs cannot be confused with target-board
+     * capability probing.
+     */
     if (caps.is_mock) {
         printf("  FEAT_ETE: %s\n", caps.has_ete ? "mock supported" : "mock");
         printf("  FEAT_TRBE: %s\n", caps.has_trbe ? "mock supported" : "mock");
@@ -224,6 +231,10 @@ static int cmd_record(int argc, char **argv)
         return rc;
     }
 
+    /*
+     * record is one-shot: allocate, configure, start, stop, linearize, write.
+     * There is no cross-process capture state yet; status reports that plainly.
+     */
     rc = ete_trbe_probe_cpu(args.cpu, &caps);
     if (rc != ETE_TRBE_OK && rc != ETE_TRBE_ERR_UNSUPPORTED) {
         fprintf(stderr, "probe failed: %s (%d)\n", ete_trbe_strerror(rc), rc);
@@ -237,6 +248,10 @@ static int cmd_record(int argc, char **argv)
         return 1;
     }
 
+    /*
+     * These defaults keep the CLI shape close to target capture while remaining
+     * harmless in host/mock mode.
+     */
     memset(&config, 0, sizeof(config));
     config.cpu = args.cpu;
     config.buffer_size = args.size;
@@ -262,6 +277,10 @@ static int cmd_record(int argc, char **argv)
         return 1;
     }
 
+    /*
+     * Allocate up to the whole buffer so wrapped captures can be linearized
+     * without a second sizing pass.
+     */
     linear = malloc(buffer.size == 0 ? 1 : buffer.size);
     if (linear == NULL) {
         fprintf(stderr, "trace output allocation failed\n");
@@ -309,6 +328,7 @@ static int cmd_record(int argc, char **argv)
 
 static int cmd_status(void)
 {
+    /* Status is intentionally honest: no daemon or persistent capture yet. */
     printf("Status: process-local CLI skeleton\n");
     printf("Capture persistence: not implemented; use record for one-shot capture\n");
     printf("Hardware validation: required for real ETE/TRBE\n");

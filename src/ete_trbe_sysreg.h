@@ -27,6 +27,11 @@ enum ete_trbe_sysreg_id {
     ETE_TRBE_SYSREG_TRCSTALLCTLR
 };
 
+/*
+ * Single predicate for the real-register boundary. The second half of the
+ * condition is architecture, but ETE_TRBE_TARGET is the important safety latch:
+ * host ARM64 machines must still compile the mock path.
+ */
 static inline bool ete_trbe_sysreg_real_target_enabled(void)
 {
 #if defined(ETE_TRBE_TARGET) && defined(__aarch64__)
@@ -38,6 +43,11 @@ static inline bool ete_trbe_sysreg_real_target_enabled(void)
 
 #if defined(ETE_TRBE_TARGET) && defined(__aarch64__)
 
+/*
+ * Named system-register access is used only where the compiler/toolchain knows
+ * the architectural name. Implementation-defined TRC/TRB encodings stay gated
+ * until target-toolchain validation proves them.
+ */
 #define ETE_TRBE_READ_SYSREG_NAMED(name)             \
     ({                                               \
         uint64_t _value;                             \
@@ -71,6 +81,7 @@ static inline void ete_trbe_tsb_csync(void)
 
 #else
 
+/* Host barriers are no-ops so default tests never assemble target instructions. */
 static inline void ete_trbe_isb(void)
 {
 }
@@ -106,6 +117,10 @@ static inline int ete_trbe_sysreg_read(enum ete_trbe_sysreg_id reg,
         return -2;
     }
 #else
+    /*
+     * Returning unsupported with a zero value makes host probes deterministic
+     * and keeps accidental target-only register access visible in tests.
+     */
     (void)reg;
     *value = 0;
     return -2;
@@ -124,6 +139,7 @@ static inline int ete_trbe_sysreg_write(enum ete_trbe_sysreg_id reg,
         return -2;
     }
 #else
+    /* Host builds never write architectural trace registers. */
     (void)reg;
     (void)value;
     return -2;

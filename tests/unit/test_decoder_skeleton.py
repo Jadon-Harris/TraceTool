@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""Unit-level contract test for ete_decode.py output formats.
+
+The heavy fixture construction lives in tests/support so this file can focus on
+the decoder contract: packet list, atom resolution, branch catalog, recovered
+flow, CSV, and DOT.
+"""
 
 import json
 import subprocess

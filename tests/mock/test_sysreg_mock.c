@@ -2,6 +2,11 @@
 
 #include <stdio.h>
 
+/*
+ * Sysreg boundary test. The default host build must never assemble or execute
+ * real trace-register access, even on an AArch64 Mac.
+ */
+
 int main(void)
 {
     uint64_t value = 0xdeadbeef;
@@ -26,6 +31,7 @@ int main(void)
         return 1;
     }
 
+    /* Host barrier wrappers are intentionally no-ops but remain callable. */
     ete_trbe_isb();
     ete_trbe_dsb_sy();
     ete_trbe_tsb_csync();

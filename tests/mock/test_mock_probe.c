@@ -3,6 +3,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/*
+ * Probe override test. Environment variables let host tests exercise the
+ * "feature present" path without implying real ETE/TRBE hardware validation.
+ */
+
 int main(void)
 {
     struct ete_trbe_caps caps;

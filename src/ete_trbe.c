@@ -12,6 +12,11 @@
 #define ETE_TRBE_BUFFER_ALIGNMENT 4096u
 #define ETE_TRBE_MAX_CPUS 256u
 
+/*
+ * The capture state is process-local by design at this stage. A future daemon
+ * or kernel-facing implementation can replace this table without changing the
+ * CLI record/probe contract.
+ */
 enum capture_state {
     CAPTURE_IDLE = 0,
     CAPTURE_CONFIGURED,
@@ -19,6 +24,7 @@ enum capture_state {
     CAPTURE_STOPPED
 };
 
+/* One slot tracks the mock lifecycle for a single CPU id. */
 struct capture_slot {
     enum capture_state state;
     struct ete_trbe_config config;
@@ -71,6 +77,10 @@ int ete_trbe_probe_cpu(unsigned int cpu, struct ete_trbe_caps *caps)
     memset(caps, 0, sizeof(*caps));
 
 #if defined(ETE_TRBE_TARGET) && defined(__aarch64__)
+    /*
+     * Never key real sysreg access on __aarch64__ alone: Apple Silicon hosts
+     * are AArch64 too. ETE_TRBE_TARGET is the explicit opt-in for board builds.
+     */
     uint64_t id_aa64dfr0 = 0;
     uint64_t tracever;
     uint64_t tracebuffer;
@@ -102,6 +112,11 @@ int ete_trbe_probe_cpu(unsigned int cpu, struct ete_trbe_caps *caps)
     return (caps->has_ete && caps->has_trbe) ? ETE_TRBE_OK :
                                                 ETE_TRBE_ERR_UNSUPPORTED;
 #else
+    /*
+     * Host builds are deliberately boring: feature presence is synthetic and
+     * visible in output as mock-only, so a Mac test cannot be mistaken for
+     * hardware validation.
+     */
     caps->has_ete = mock_env_enabled("ETE_TRBE_MOCK_HAS_ETE");
     caps->has_trbe = mock_env_enabled("ETE_TRBE_MOCK_HAS_TRBE");
     caps->is_mock = true;
@@ -116,6 +131,10 @@ int ete_trbe_alloc_buffer(unsigned int cpu, size_t size,
     (void)cpu;
     void *mem = NULL;
 
+    /*
+     * The alignment check mirrors the granularity a real TRBE sink will need
+     * while staying implementable with portable host allocation.
+     */
     if (buf == NULL || size == 0 ||
         (size % ETE_TRBE_BUFFER_ALIGNMENT) != 0) {
         return ETE_TRBE_ERR_INVALID_ARGUMENT;
@@ -192,6 +211,10 @@ int ete_trbe_copy_valid_trace(const struct ete_trbe_buffer *buf,
     if (!buf->wrapped) {
         memcpy(out, base, valid);
     } else {
+        /*
+         * TRBE wrap means the oldest byte is at write_ptr. Copy tail then head
+         * to produce the chronological byte stream expected by the decoder.
+         */
         head = buf->size - write_off;
         tail = write_off;
         memcpy(out, base + write_off, head);
@@ -217,8 +240,14 @@ int ete_trbe_config_cpu(unsigned int cpu,
     }
 
 #if defined(ETE_TRBE_TARGET) && defined(__aarch64__)
+    /*
+     * Target config will eventually program TRBBASER/TRBLIMITR/TRBMAR and ETE
+     * filters here. Until those encodings are cross-toolchain validated, target
+     * builds fail explicitly instead of silently using host behavior.
+     */
     return ETE_TRBE_ERR_UNSUPPORTED;
 #else
+    /* Mock config only snapshots the requested shape for start/stop tests. */
     slot = &g_capture_slots[cpu];
     if (slot->state == CAPTURE_RUNNING) {
         return ETE_TRBE_ERR_BAD_STATE;
@@ -248,6 +277,7 @@ int ete_trbe_start_cpu(unsigned int cpu)
      */
     return ETE_TRBE_ERR_UNSUPPORTED;
 #else
+    /* Mock start/stop validates lifecycle ordering without touching hardware. */
     slot = &g_capture_slots[cpu];
     if (slot->state != CAPTURE_CONFIGURED && slot->state != CAPTURE_STOPPED) {
         return ETE_TRBE_ERR_BAD_STATE;
@@ -280,6 +310,10 @@ int ete_trbe_stop_cpu(unsigned int cpu,
         return ETE_TRBE_ERR_BAD_STATE;
     }
 
+    /*
+     * The mock result echoes the software buffer view. Real target code should
+     * replace these with final TRB register reads after synchronization.
+     */
     memset(&slot->result, 0, sizeof(slot->result));
     slot->result.trbptr = slot->buffer.write_ptr;
     slot->result.trblimitr = slot->buffer.limit;
@@ -297,6 +331,7 @@ int ete_trbe_dump_cpu(unsigned int cpu,
                       const char *trace_path,
                       const char *meta_path)
 {
+    /* Persistent start/stop/dump is intentionally not wired yet. */
     (void)cpu;
     (void)trace_path;
     (void)meta_path;
@@ -321,6 +356,10 @@ int ete_trbe_write_metadata_json(char *out, size_t out_size,
 
     mode = caps->is_mock ? "mock" : "target";
     image = (image_path != NULL) ? image_path : "";
+    /*
+     * The warning array is part of the metadata contract: downstream tools and
+     * reviewers can tell host/mock captures from hardware-validated captures.
+     */
     warning = caps->is_mock ?
         "\"host mock only, hardware validation required\"" : "";
 

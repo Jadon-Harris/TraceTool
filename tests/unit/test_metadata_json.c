@@ -3,6 +3,11 @@
 #include <stdio.h>
 #include <string.h>
 
+/*
+ * Metadata is the contract between ete_trace and ete_decode. This test locks
+ * down the fields that matter for host/mock review and future target captures.
+ */
+
 static int require_contains(const char *haystack, const char *needle)
 {
     if (strstr(haystack, needle) == NULL) {
@@ -40,6 +45,7 @@ int main(void)
         return 1;
     }
 
+    /* Keep hardware-validation and placeholder register fields explicit. */
     if (require_contains(json, "\"format\": \"ete-trbe-raw-v1\"") != 0 ||
         require_contains(json, "\"capture_mode\": \"mock\"") != 0 ||
         require_contains(json, "\"hardware_validated\": false") != 0 ||
