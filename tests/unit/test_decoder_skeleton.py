@@ -26,7 +26,9 @@ def main() -> int:
             + b"\x01\x00"
             + b"\x04"
             + b"\xf6"
-            + b"\xdb"
+            + b"\x2d\x01"
+            + b"\xf7"
+            + b"\x35"
             + b"\x00\x05"
             + b"\x00\x03"
             + b"\x9d\x00\x00\x40\x00\x00\x00\x00\x00"
@@ -54,7 +56,7 @@ def main() -> int:
         )
 
         flow_data = json.loads(flow.read_text(encoding="utf-8"))
-        if flow_data["decoder_stage"] != "packet-parser-mvp":
+        if flow_data["decoder_stage"] != "speculation-mvp":
             raise AssertionError("unexpected decoder stage")
         kinds = [packet["kind"] for packet in flow_data["packets"]]
         expected = [
@@ -62,7 +64,9 @@ def main() -> int:
             "trace_info",
             "trace_on",
             "atom",
+            "commit",
             "atom",
+            "cancel",
             "overflow",
             "discard",
             "address",
@@ -71,10 +75,17 @@ def main() -> int:
             raise AssertionError(f"unexpected packet kinds: {kinds}")
         if flow_data["packets"][3]["fields"]["atoms"] != "N":
             raise AssertionError("atom f1 pattern not decoded")
-        if flow_data["packets"][4]["fields"]["atoms"] != "EE":
-            raise AssertionError("atom f2 pattern not decoded")
-        if flow_data["packets"][7]["fields"]["address"] != "0x400000":
+        if flow_data["packets"][5]["fields"]["atoms"] != "E":
+            raise AssertionError("atom f1 taken pattern not decoded")
+        if flow_data["packets"][9]["fields"]["address"] != "0x400000":
             raise AssertionError("long address not decoded")
+        atom_states = [atom["state"] for atom in flow_data["atom_stream"]]
+        if atom_states != ["committed", "canceled"]:
+            raise AssertionError(f"unexpected atom states: {atom_states}")
+        if flow_data["speculation"]["committed_atoms"] != 1:
+            raise AssertionError("commit packet did not resolve one atom")
+        if flow_data["speculation"]["canceled_atoms"] != 1:
+            raise AssertionError("cancel packet did not resolve one atom")
         event_types = [event["type"] for event in flow_data["events"]]
         if event_types != ["overflow", "discard"]:
             raise AssertionError(f"unexpected events: {event_types}")

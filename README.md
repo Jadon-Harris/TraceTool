@@ -120,6 +120,9 @@ Implemented in the first stage:
 - `ete_decode.py` packet parser MVP that emits packet records for async,
   trace-info, timestamp, trace-on, exception, context, address, source address,
   Q, atom, speculation, overflow, discard, and malformed packet classes.
+- `ete_decode.py` speculation MVP that emits `atom_stream` entries and marks
+  atom outcomes as committed, canceled, pending, or mispredict based on
+  commit/cancel/mispredict packets.
 - Metadata JSON includes TRCIDR placeholders, ETE config placeholders, and image
   address fields.
 
@@ -130,7 +133,8 @@ Not implemented yet:
 - Real ETE/TRBE start/stop sequencing.
 - Persistent `start`, `stop`, and `dump` capture commands.
 - Full ETE packet decoding for all configuration-dependent payload fields.
-- Speculation resolution and AArch64 flow recovery.
+- Full speculation resolution across all ETE configuration modes.
+- AArch64 ELF/image flow recovery.
 
 ## Offline Workflow Goal
 

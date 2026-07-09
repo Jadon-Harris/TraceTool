@@ -12,6 +12,7 @@ import csv
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 
 ASYNC_PACKET = b"\x00" * 11 + b"\x80"
@@ -33,6 +34,31 @@ class EtePacket:
         }
         if self.fields:
             item["fields"] = self.fields
+        return item
+
+
+@dataclass
+class AtomResolution:
+    seq: int
+    packet_offset: int
+    atom_index: int
+    atom: str
+    state: str
+    resolved_by: Optional[int] = None
+    flags: list[str] = field(default_factory=list)
+
+    def to_json(self) -> dict:
+        item = {
+            "seq": self.seq,
+            "packet_offset": self.packet_offset,
+            "atom_index": self.atom_index,
+            "atom": self.atom,
+            "state": self.state,
+        }
+        if self.resolved_by is not None:
+            item["resolved_by"] = self.resolved_by
+        if self.flags:
+            item["flags"] = self.flags
         return item
 
 
@@ -435,16 +461,130 @@ def packet_events(packets: list[EtePacket]) -> list[dict]:
     return events
 
 
+def resolve_speculation(packets: list[EtePacket]) -> tuple[list[AtomResolution], dict]:
+    atoms: list[AtomResolution] = []
+    pending: list[int] = []
+    events: list[dict] = []
+    saw_resolution_packet = False
+
+    def append_atoms(packet: EtePacket, state: str,
+                     flags: Optional[list[str]] = None) -> None:
+        atom_text = packet.fields.get("atoms", "")
+        for atom_index, atom in enumerate(atom_text):
+            entry = AtomResolution(
+                seq=len(atoms),
+                packet_offset=packet.offset,
+                atom_index=atom_index,
+                atom=atom,
+                state=state,
+                flags=list(flags or []),
+            )
+            atoms.append(entry)
+            if state == "pending":
+                pending.append(entry.seq)
+
+    for packet in packets:
+        if packet.kind == "atom":
+            append_atoms(packet, "pending")
+            continue
+
+        if packet.kind == "mispredict":
+            append_atoms(packet, "mispredict", ["mispredict"])
+            events.append({
+                "type": "mispredict",
+                "offset": packet.offset,
+                "atoms": packet.fields.get("atoms", ""),
+            })
+            continue
+
+        if packet.kind == "commit":
+            saw_resolution_packet = True
+            count = int(packet.fields.get("commit_elements", 0))
+            committed = 0
+            while count > 0 and pending:
+                atom_seq = pending.pop(0)
+                atoms[atom_seq].state = "committed"
+                atoms[atom_seq].resolved_by = packet.offset
+                committed += 1
+                count -= 1
+            if count > 0:
+                events.append({
+                    "type": "speculation_gap",
+                    "reason": "commit exceeds pending atoms",
+                    "offset": packet.offset,
+                    "missing_atoms": count,
+                })
+            events.append({
+                "type": "commit",
+                "offset": packet.offset,
+                "atoms": committed,
+            })
+            continue
+
+        if packet.kind in {"cancel", "cancel_mispredict"}:
+            saw_resolution_packet = True
+            count = int(packet.fields.get("cancel_elements", 0))
+            canceled = 0
+            flags = ["mispredict"] if packet.kind == "cancel_mispredict" else []
+            while count > 0 and pending:
+                atom_seq = pending.pop()
+                atoms[atom_seq].state = "canceled"
+                atoms[atom_seq].resolved_by = packet.offset
+                atoms[atom_seq].flags.extend(flags)
+                canceled += 1
+                count -= 1
+            if count > 0:
+                events.append({
+                    "type": "speculation_gap",
+                    "reason": "cancel exceeds pending atoms",
+                    "offset": packet.offset,
+                    "missing_atoms": count,
+                })
+            events.append({
+                "type": "cancel",
+                "offset": packet.offset,
+                "atoms": canceled,
+                "mispredict": packet.kind == "cancel_mispredict",
+            })
+
+    if saw_resolution_packet:
+        for atom_seq in pending:
+            events.append({
+                "type": "speculation_pending",
+                "offset": atoms[atom_seq].packet_offset,
+                "seq": atom_seq,
+            })
+    else:
+        for atom_seq in pending:
+            atoms[atom_seq].state = "committed"
+        pending.clear()
+
+    summary = {
+        "mode": "resolution-packets" if saw_resolution_packet else "no-resolution-packets",
+        "total_atoms": len(atoms),
+        "committed_atoms": sum(1 for atom in atoms if atom.state == "committed"),
+        "canceled_atoms": sum(1 for atom in atoms if atom.state == "canceled"),
+        "pending_atoms": sum(1 for atom in atoms if atom.state == "pending"),
+        "mispredict_atoms": sum(1 for atom in atoms if atom.state == "mispredict"),
+        "events": events,
+    }
+    return atoms, summary
+
+
 def write_flow(path: Path, trace: bytes, metadata: dict, image: str) -> None:
     packets = parse_trace_packets(trace)
+    atom_stream, speculation = resolve_speculation(packets)
     flow = {
         "format": "ete-flow-v1",
-        "decoder_stage": "packet-parser-mvp",
+        "decoder_stage": "speculation-mvp",
         "trace_bytes": len(trace),
         "metadata_format": metadata.get("format", "unknown"),
         "image": image,
         "packet_count": len(packets),
         "packets": [packet.to_json() for packet in packets],
+        "atom_count": len(atom_stream),
+        "atom_stream": [atom.to_json() for atom in atom_stream],
+        "speculation": speculation,
         "basic_blocks": [],
         "edges": [],
         "events": packet_events(packets),
@@ -479,7 +619,7 @@ def write_branches(path: Path) -> None:
 def write_dot(path: Path) -> None:
     path.write_text(
         "digraph ete_flow {\n"
-        "  label=\"ETE decoder skeleton\";\n"
+        "  label=\"ETE decoder MVP\";\n"
         "  labelloc=\"t\";\n"
         "}\n",
         encoding="utf-8",
