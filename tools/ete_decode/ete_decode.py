@@ -1,14 +1,39 @@
 #!/usr/bin/env python3
-"""Minimal ETE raw trace decoder skeleton.
+"""Minimal ETE raw trace decoder.
 
-This stage validates CLI plumbing and output contracts only. It does not parse
-ETE packets or recover AArch64 flow yet.
+The packet parser is intentionally small, but it follows the ETMv4/ETE packet
+header classes used by Arm OpenCSD. It emits packet records for later
+speculation and instruction-flow recovery stages; it does not yet follow the
+program image or resolve branch targets.
 """
 
 import argparse
 import csv
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
+
+
+ASYNC_PACKET = b"\x00" * 11 + b"\x80"
+
+
+@dataclass
+class EtePacket:
+    offset: int
+    raw: bytes
+    kind: str
+    fields: dict = field(default_factory=dict)
+
+    def to_json(self) -> dict:
+        item = {
+            "offset": self.offset,
+            "length": len(self.raw),
+            "kind": self.kind,
+            "raw": self.raw.hex(),
+        }
+        if self.fields:
+            item["fields"] = self.fields
+        return item
 
 
 def parse_args() -> argparse.Namespace:
@@ -42,24 +67,389 @@ def load_inputs(args: argparse.Namespace) -> tuple[bytes, dict]:
     return trace, metadata
 
 
+def read_cont_u32(trace: bytes, start: int, limit: int = 5) -> tuple[int, int]:
+    value = 0
+    pos = start
+    for idx in range(limit):
+        if pos >= len(trace):
+            raise ValueError("incomplete continuation field")
+        byte = trace[pos]
+        value |= (byte & 0x7F) << (idx * 7)
+        pos += 1
+        if (byte & 0x80) == 0:
+            return value, pos
+    raise ValueError("unterminated continuation field")
+
+
+def read_cont_u64(trace: bytes, start: int) -> tuple[int, int, int]:
+    value = 0
+    pos = start
+    for idx in range(9):
+        if pos >= len(trace):
+            raise ValueError("incomplete timestamp field")
+        byte = trace[pos]
+        mask = 0xFF if idx == 8 else 0x7F
+        value |= (byte & mask) << (idx * 7)
+        pos += 1
+        if idx == 8 or (byte & 0x80) == 0:
+            bits = 64 if idx == 8 else (idx + 1) * 7
+            return value, bits, pos
+    raise ValueError("unterminated timestamp field")
+
+
+def parse_addr_payload(header: int, payload: bytes, isa: int, bits: int) -> int:
+    if bits == 32:
+        if isa == 0:
+            return ((payload[0] & 0x7F) << 2 |
+                    (payload[1] & 0x7F) << 9 |
+                    payload[2] << 16 |
+                    payload[3] << 24)
+        return ((payload[0] & 0x7F) << 1 |
+                payload[1] << 8 |
+                payload[2] << 16 |
+                payload[3] << 24)
+
+    if isa == 0:
+        return ((payload[0] & 0x7F) << 2 |
+                (payload[1] & 0x7F) << 9 |
+                payload[2] << 16 |
+                payload[3] << 24 |
+                payload[4] << 32 |
+                payload[5] << 40 |
+                payload[6] << 48 |
+                payload[7] << 56)
+    return ((payload[0] & 0x7F) << 1 |
+            payload[1] << 8 |
+            payload[2] << 16 |
+            payload[3] << 24 |
+            payload[4] << 32 |
+            payload[5] << 40 |
+            payload[6] << 48 |
+            payload[7] << 56)
+
+
+def parse_short_addr(trace: bytes, start: int, isa: int) -> tuple[int, int, int]:
+    first = trace[start]
+    shift = 2 if isa == 0 else 1
+    value = (first & 0x7F) << shift
+    bits = 7 + shift
+    pos = start + 1
+    if first & 0x80:
+        if pos >= len(trace):
+            raise ValueError("incomplete short address")
+        value |= trace[pos] << (7 + shift)
+        bits += 8
+        pos += 1
+    return value, bits, pos
+
+
+def atom_pattern(header: int) -> tuple[str, int, int]:
+    f4_patterns = [0xE, 0x0, 0xA, 0x5]
+
+    if 0xF6 <= header <= 0xF7:
+        pattern = header & 0x1
+        count = 1
+    elif 0xD8 <= header <= 0xDB:
+        pattern = header & 0x3
+        count = 2
+    elif 0xF8 <= header <= 0xFF:
+        pattern = header & 0x7
+        count = 3
+    elif 0xDC <= header <= 0xDF:
+        pattern = f4_patterns[header & 0x3]
+        count = 4
+    elif 0xD5 <= header <= 0xD7 or header == 0xF5:
+        pattern_index = ((header & 0x20) >> 3) | (header & 0x3)
+        patterns = {5: 0x1E, 1: 0x00, 2: 0x0A, 3: 0x15}
+        pattern = patterns.get(pattern_index, 0)
+        count = 5
+    else:
+        e_count = (header & 0x1F) + 3
+        pattern = (1 << e_count) - 1
+        if (header & 0x20) == 0:
+            pattern |= 1 << e_count
+        count = e_count + 1
+
+    atoms = "".join("E" if (pattern >> idx) & 1 else "N"
+                    for idx in range(count))
+    return atoms, pattern, count
+
+
+def parse_trace_info(trace: bytes, offset: int) -> tuple[EtePacket, int]:
+    pos = offset + 1
+    controls = []
+    while True:
+        if pos >= len(trace):
+            raise ValueError("incomplete trace-info controls")
+        byte = trace[pos]
+        controls.append(byte)
+        pos += 1
+        if (byte & 0x80) == 0:
+            break
+
+    present = controls[0] & 0x1F
+    names = [
+        ("info", 0x01),
+        ("key", 0x02),
+        ("speculation", 0x04),
+        ("cycle_threshold", 0x08),
+        ("commit_window", 0x10),
+    ]
+    sections = {}
+    for name, bit in names:
+        if present & bit:
+            value, pos = read_cont_u32(trace, pos)
+            sections[name] = value
+
+    return EtePacket(offset, trace[offset:pos], "trace_info",
+                     {"control": controls, "sections": sections}), pos
+
+
+def parse_packet(trace: bytes, offset: int) -> tuple[EtePacket, int]:
+    header = trace[offset]
+
+    if header == 0x00:
+        if trace.startswith(ASYNC_PACKET, offset):
+            end = offset + len(ASYNC_PACKET)
+            return EtePacket(offset, trace[offset:end], "async"), end
+        if offset + 1 >= len(trace):
+            return EtePacket(offset, trace[offset:], "incomplete",
+                             {"reason": "extension header at end"}), len(trace)
+        ext = trace[offset + 1]
+        if ext == 0x03:
+            return EtePacket(offset, trace[offset:offset + 2], "discard"), offset + 2
+        if ext == 0x05:
+            return EtePacket(offset, trace[offset:offset + 2], "overflow"), offset + 2
+        return EtePacket(offset, trace[offset:offset + 2], "bad_sequence",
+                         {"extension": ext}), offset + 2
+
+    if header == 0x01:
+        packet, end = parse_trace_info(trace, offset)
+        return packet, end
+
+    if header in (0x02, 0x03):
+        ts, bits, pos = read_cont_u64(trace, offset + 1)
+        fields = {"timestamp": ts, "timestamp_bits": bits}
+        if header & 1:
+            cycle_count, pos = read_cont_u32(trace, pos, 3)
+            fields["cycle_count"] = cycle_count
+        return EtePacket(offset, trace[offset:pos], "timestamp", fields), pos
+
+    no_payload = {
+        0x04: "trace_on",
+        0x0A: "transaction_start",
+        0x0B: "transaction_commit",
+        0x70: "ignore",
+        0x88: "timestamp_marker",
+    }
+    if header in no_payload:
+        return EtePacket(offset, trace[offset:offset + 1], no_payload[header]), offset + 1
+
+    if header == 0x06:
+        if offset + 1 >= len(trace):
+            return EtePacket(offset, trace[offset:], "incomplete",
+                             {"reason": "exception payload missing"}), len(trace)
+        second = trace[offset + 1]
+        size = 3 if (second & 0x80) else 2
+        end = min(offset + size, len(trace))
+        fields = {"exception_type": (second >> 1) & 0x1F}
+        if end - offset < size:
+            fields["reason"] = "exception payload truncated"
+            return EtePacket(offset, trace[offset:end], "incomplete", fields), end
+        if second & 0x80:
+            fields["exception_type"] |= (trace[offset + 2] & 0x1F) << 5
+        return EtePacket(offset, trace[offset:end], "exception", fields), end
+
+    if 0x71 <= header <= 0x7F:
+        return EtePacket(offset, trace[offset:offset + 1], "event",
+                         {"event": header & 0x0F}), offset + 1
+
+    if header in (0x80, 0x81):
+        if (header & 1) == 0:
+            return EtePacket(offset, trace[offset:offset + 1], "context",
+                             {"updated": False}), offset + 1
+        if offset + 1 >= len(trace):
+            return EtePacket(offset, trace[offset:], "incomplete",
+                             {"reason": "context info missing"}), len(trace)
+        info = trace[offset + 1]
+        fields = {
+            "updated": True,
+            "el": info & 0x03,
+            "secure": (info >> 3) & 1,
+            "ns": (info >> 4) & 1,
+            "sf": (info >> 5) & 1,
+            "vmid_present": bool(info & 0x40),
+            "context_id_present": bool(info & 0x80),
+        }
+        return EtePacket(offset, trace[offset:offset + 2], "context", fields), offset + 2
+
+    long_addr_headers = {
+        0x82: ("address_context", 32, 0),
+        0x83: ("address_context", 32, 1),
+        0x85: ("address_context", 64, 0),
+        0x86: ("address_context", 64, 1),
+        0x9A: ("address", 32, 0),
+        0x9B: ("address", 32, 1),
+        0x9D: ("address", 64, 0),
+        0x9E: ("address", 64, 1),
+        0xB6: ("source_address", 32, 0),
+        0xB7: ("source_address", 32, 1),
+        0xB8: ("source_address", 64, 0),
+        0xB9: ("source_address", 64, 1),
+    }
+    if header in long_addr_headers:
+        kind, bits, isa = long_addr_headers[header]
+        addr_len = bits // 8
+        end = min(offset + 1 + addr_len, len(trace))
+        if end - offset < 1 + addr_len:
+            return EtePacket(offset, trace[offset:end], "incomplete",
+                             {"reason": f"{kind} payload truncated"}), end
+        value = parse_addr_payload(header, trace[offset + 1:end], isa, bits)
+        fields = {"address": f"0x{value:x}", "isa": isa, "bits": bits}
+        if kind == "address_context":
+            if end >= len(trace):
+                fields["context_truncated"] = True
+            else:
+                info = trace[end]
+                fields.update({
+                    "context_info": info,
+                    "el": info & 0x03,
+                    "secure": (info >> 3) & 1,
+                    "ns": (info >> 4) & 1,
+                    "sf": (info >> 5) & 1,
+                    "vmid_present": bool(info & 0x40),
+                    "context_id_present": bool(info & 0x80),
+                })
+                end += 1
+        return EtePacket(offset, trace[offset:end], kind, fields), end
+
+    if header in (0x95, 0x96, 0xB4, 0xB5):
+        kind = "source_address" if header >= 0xB4 else "address"
+        isa = 1 if header in (0x96, 0xB5) else 0
+        value, bits, end = parse_short_addr(trace, offset + 1, isa)
+        return EtePacket(offset, trace[offset:end], kind,
+                         {"address": f"0x{value:x}", "isa": isa,
+                          "bits": bits, "short": True}), end
+
+    if 0x90 <= header <= 0x92 or 0xB0 <= header <= 0xB2:
+        kind = "source_address_match" if header >= 0xB0 else "address_match"
+        return EtePacket(offset, trace[offset:offset + 1], kind,
+                         {"exact_match": header & 0x03}), offset + 1
+
+    if header == 0x2D or header in (0x2E, 0x2F):
+        value, end = read_cont_u32(trace, offset + 1)
+        kind = {0x2D: "commit", 0x2E: "cancel", 0x2F: "cancel_mispredict"}[header]
+        field = "commit_elements" if header == 0x2D else "cancel_elements"
+        return EtePacket(offset, trace[offset:end], kind, {field: value}), end
+
+    if 0x30 <= header <= 0x33:
+        atoms = {1: "E", 2: "EE", 3: "N"}.get(header & 0x03, "")
+        return EtePacket(offset, trace[offset:offset + 1], "mispredict",
+                         {"atoms": atoms}), offset + 1
+
+    if 0x34 <= header <= 0x37:
+        atoms = {1: "E", 2: "EE", 3: "N"}.get(header & 0x03, "")
+        return EtePacket(offset, trace[offset:offset + 1], "cancel",
+                         {"cancel_elements": 1, "atoms": atoms}), offset + 1
+
+    if 0x38 <= header <= 0x3F:
+        atoms = "E" if header & 1 else ""
+        return EtePacket(offset, trace[offset:offset + 1], "cancel",
+                         {"cancel_elements": ((header >> 1) & 0x03) + 2,
+                          "atoms": atoms}), offset + 1
+
+    if 0xA0 <= header <= 0xAF:
+        q_type = header & 0x0F
+        if q_type in (0x3, 0x4, 0x7, 0x8, 0x9, 0xD, 0xE):
+            return EtePacket(offset, trace[offset:offset + 1], "reserved",
+                             {"header": header}), offset + 1
+        if q_type == 0xF:
+            return EtePacket(offset, trace[offset:offset + 1], "q",
+                             {"count_present": False, "q_type": q_type}), offset + 1
+        pos = offset + 1
+        fields = {"count_present": True, "q_type": q_type}
+        if q_type in (0x5, 0x6):
+            isa = 0 if q_type == 0x5 else 1
+            value, bits, pos = parse_short_addr(trace, pos, isa)
+            fields.update({"address": f"0x{value:x}", "isa": isa, "bits": bits})
+        elif q_type in (0xA, 0xB):
+            isa = 0 if q_type == 0xA else 1
+            end_addr = pos + 4
+            if end_addr > len(trace):
+                return EtePacket(offset, trace[offset:], "incomplete",
+                                 {"reason": "q long address truncated"}), len(trace)
+            value = parse_addr_payload(header, trace[pos:end_addr], isa, 32)
+            fields.update({"address": f"0x{value:x}", "isa": isa, "bits": 32})
+            pos = end_addr
+        elif q_type in (0x0, 0x1, 0x2):
+            fields["exact_match"] = q_type & 0x03
+        count, pos = read_cont_u32(trace, pos)
+        fields["count"] = count
+        return EtePacket(offset, trace[offset:pos], "q", fields), pos
+
+    if (0xC0 <= header <= 0xD7 or 0xD8 <= header <= 0xDF or
+            0xE0 <= header <= 0xF5 or 0xF6 <= header <= 0xFF):
+        atoms, pattern, count = atom_pattern(header)
+        return EtePacket(offset, trace[offset:offset + 1], "atom",
+                         {"atoms": atoms, "pattern": pattern,
+                          "count": count}), offset + 1
+
+    return EtePacket(offset, trace[offset:offset + 1], "reserved",
+                     {"header": header}), offset + 1
+
+
+def parse_trace_packets(trace: bytes) -> list[EtePacket]:
+    packets = []
+    offset = 0
+    while offset < len(trace):
+        try:
+            packet, next_offset = parse_packet(trace, offset)
+        except (IndexError, ValueError) as exc:
+            packet = EtePacket(offset, trace[offset:offset + 1], "incomplete",
+                               {"reason": str(exc)})
+            next_offset = offset + 1
+        packets.append(packet)
+        if next_offset <= offset:
+            next_offset = offset + 1
+        offset = next_offset
+    return packets
+
+
+def packet_events(packets: list[EtePacket]) -> list[dict]:
+    events = []
+    for packet in packets:
+        if packet.kind in {"overflow", "discard"}:
+            events.append({"type": packet.kind, "offset": packet.offset})
+        elif packet.kind in {"bad_sequence", "reserved", "incomplete"}:
+            events.append({
+                "type": "gap",
+                "reason": packet.kind,
+                "offset": packet.offset,
+            })
+    if not packets:
+        events.append({
+            "type": "gap",
+            "reason": "empty trace byte stream",
+            "offset": 0,
+        })
+    return events
+
+
 def write_flow(path: Path, trace: bytes, metadata: dict, image: str) -> None:
+    packets = parse_trace_packets(trace)
     flow = {
         "format": "ete-flow-v1",
-        "decoder_stage": "skeleton",
+        "decoder_stage": "packet-parser-mvp",
         "trace_bytes": len(trace),
         "metadata_format": metadata.get("format", "unknown"),
         "image": image,
+        "packet_count": len(packets),
+        "packets": [packet.to_json() for packet in packets],
         "basic_blocks": [],
         "edges": [],
-        "events": [
-            {
-                "type": "gap",
-                "reason": "decoder skeleton has not parsed ETE packets yet",
-                "offset": 0,
-            }
-        ],
+        "events": packet_events(packets),
         "warnings": [
-            "ETE packet parsing and AArch64 flow recovery are not implemented yet"
+            "AArch64 flow recovery is not implemented yet"
         ],
     }
     path.write_text(json.dumps(flow, indent=2) + "\n", encoding="utf-8")

@@ -20,12 +20,17 @@
   - 阶段 6 `ete_trace record` one-shot raw/meta 输出。
   - 阶段 6 `ete_trace status` 明确说明当前无跨进程持久 capture。
   - 阶段 7 `ete_decode.py` skeleton，可读取 raw/meta/image 并输出 flow/branches/dot。
+  - 阶段 8 `ete_decode.py` ETE packet parser MVP。
+  - 阶段 8 识别 async、trace-info、timestamp、trace-on、exception、context、address、source address、Q、atom、commit/cancel/mispredict、overflow、discard、reserved/incomplete packet。
+  - 阶段 8 flow.json 输出 `packet_count` 和 `packets` 列表，overflow/discard/bad/reserved/incomplete 映射为事件。
 - 未完成：
   - 经目标工具链验证的完整 TRC/TRB sysreg encoding 读写。
   - target 物理连续 buffer、TRBE translation regime 配置和 cache/DMA 同步。
   - 真实 ETE/TRBE start/stop 寄存器编程序列。
-  - record/dump/status CLI。
-  - raw trace decoder。
+  - start/stop/dump 持久 capture CLI。
+  - 完整 ETE packet parser，包括所有配置相关变长字段、条件指令 trace、data trace、VMID/CtxtID 宽度感知解析。
+  - speculation resolution。
+  - AArch64 ELF/image 执行流恢复。
 - 当前可运行命令：
   - `cmake -S . -B build-host -DETE_TRBE_TARGET=OFF`
   - `cmake --build build-host`
@@ -37,6 +42,7 @@
   - `./build-host/test_capture_state_mock`
   - `./build-host/ete_trace record --cpu 0 --size 64K --duration-ms 1 --image app.elf --out trace_cpu0.bin --meta trace_cpu0.json`
   - `python3 tests/unit/test_decoder_skeleton.py`
+  - `env PYTHONPYCACHEPREFIX=/private/tmp/etrbe-pycache python3 -m py_compile tools/ete_decode/ete_decode.py tests/unit/test_decoder_skeleton.py`
   - `ETE_TRBE_MOCK_HAS_ETE=1 ETE_TRBE_MOCK_HAS_TRBE=1 ./build-host/ete_trace probe --cpu 0`
   - `./build-host/ete_trace probe`
 
@@ -49,7 +55,7 @@ Host/Mac tests:
   - `make test`
   - `./build-host/ete_trace probe`
   - `git diff --check`
-- 结果：阶段 1、阶段 2、阶段 3、阶段 4、阶段 5、阶段 6、阶段 7 均通过。`cmake` 当前 Mac shell 不可用，因此使用 Makefile fallback 完成 host/mock 验证。
+- 结果：阶段 1、阶段 2、阶段 3、阶段 4、阶段 5、阶段 6、阶段 7、阶段 8 均通过。`cmake` 当前 Mac shell 不可用时可使用 Makefile fallback 完成 host/mock 验证。
 
 Target build:
 - 是否已验证：否。
@@ -61,11 +67,11 @@ Hardware validation:
 
 ## Next Steps
 
-1. 阶段 8：实现 ETE packet parser MVP。
-2. 阶段 9：实现 speculation resolution MVP。
-3. 阶段 10：结合 ELF 恢复 AArch64 执行流。
+1. 阶段 9：实现 speculation resolution MVP。
+2. 阶段 10：结合 ELF 恢复 AArch64 执行流。
+3. 阶段 11：添加 integration sample 和文档。
 
 ## Hardware Validation Needed
 
 - 是否需要 Armv9-A FEAT_ETE/FEAT_TRBE 真机验证：是。
-- 当前哪些功能只通过 mock：`ete_trace probe`、`ete_trace record` raw/meta 输出、`ete_decode.py` skeleton、metadata JSON writer、TRBE buffer linearize、capture state machine、sysreg wrapper mock path、mock feature override、host/mock tests。
+- 当前哪些功能只通过 mock：`ete_trace probe`、`ete_trace record` raw/meta 输出、`ete_decode.py` packet parser MVP、metadata JSON writer、TRBE buffer linearize、capture state machine、sysreg wrapper mock path、mock feature override、host/mock tests。

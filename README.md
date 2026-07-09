@@ -67,7 +67,7 @@ In host/mock mode the raw file can be empty because no hardware trace is
 generated. The metadata warning records that hardware validation is still
 required.
 
-Run the decoder skeleton:
+Run the decoder:
 
 ```sh
 python3 tools/ete_decode/ete_decode.py \
@@ -117,6 +117,9 @@ Implemented in the first stage:
 - `ete_trace record` one-shot CLI for raw/metadata file output.
 - `ete_decode.py` skeleton that reads trace, metadata, and image inputs and
   writes `flow.json`, `branches.csv`, and `flow.dot`.
+- `ete_decode.py` packet parser MVP that emits packet records for async,
+  trace-info, timestamp, trace-on, exception, context, address, source address,
+  Q, atom, speculation, overflow, discard, and malformed packet classes.
 - Metadata JSON includes TRCIDR placeholders, ETE config placeholders, and image
   address fields.
 
@@ -125,8 +128,9 @@ Not implemented yet:
 - Target physical/translation-regime buffer setup and cache maintenance.
 - ETE/TRBE start/stop sequencing.
 - Real ETE/TRBE start/stop sequencing.
-- `record`, `dump`, and `status` commands.
-- Raw ETE packet decoding and AArch64 flow recovery.
+- Persistent `start`, `stop`, and `dump` capture commands.
+- Full ETE packet decoding for all configuration-dependent payload fields.
+- Speculation resolution and AArch64 flow recovery.
 
 ## Offline Workflow Goal
 
