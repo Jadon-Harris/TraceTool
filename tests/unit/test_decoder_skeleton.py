@@ -124,7 +124,7 @@ def main() -> int:
         )
 
         flow_data = json.loads(flow.read_text(encoding="utf-8"))
-        if flow_data["decoder_stage"] != "static-branch-mvp":
+        if flow_data["decoder_stage"] != "dynamic-flow-mvp":
             raise AssertionError("unexpected decoder stage")
         kinds = [packet["kind"] for packet in flow_data["packets"]]
         expected = [
@@ -169,6 +169,17 @@ def main() -> int:
             raise AssertionError("BL target not decoded")
         if flow_data["branch_catalog"][1]["symbol_dst"] != "callee":
             raise AssertionError("branch target symbol not resolved")
+        recovered = flow_data["recovered_branches"]
+        if [branch["kind"] for branch in recovered] != [
+            "conditional_branch",
+            "call_direct",
+            "return",
+        ]:
+            raise AssertionError(f"unexpected recovered flow: {recovered}")
+        if recovered[0]["taken"] != "no" or recovered[0]["dst"] != "0x400004":
+            raise AssertionError("conditional atom did not drive fallthrough")
+        if flow_data["flow_recovery"]["branches_recovered"] != 3:
+            raise AssertionError("unexpected recovered branch count")
         event_types = [event["type"] for event in flow_data["events"]]
         if event_types != ["overflow", "discard"]:
             raise AssertionError(f"unexpected events: {event_types}")

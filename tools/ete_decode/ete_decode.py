@@ -706,6 +706,19 @@ def find_symbol(symbols: list[dict], addr: Optional[int]) -> str:
     return best
 
 
+def parse_hex_int(value: object) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value, 0)
+        except ValueError:
+            return None
+    return None
+
+
 def parse_elf_symbols(data: bytes, sections: list[dict]) -> list[dict]:
     symbols = []
     for section in sections:
@@ -855,16 +868,184 @@ def parse_elf_branch_catalog(image_path: str) -> tuple[dict, list[BranchInstruct
     return info, branches
 
 
+def first_trace_address(packets: list[EtePacket]) -> Optional[int]:
+    for packet in packets:
+        if packet.kind in {"address", "address_context"}:
+            return parse_hex_int(packet.fields.get("address"))
+    return None
+
+
+def recover_aarch64_flow(packets: list[EtePacket],
+                         atoms: list[AtomResolution],
+                         image_info: dict,
+                         branch_catalog: list[BranchInstruction]
+                         ) -> tuple[list[BranchInstruction], list[dict], dict]:
+    events = []
+    edges = []
+    recovered: list[BranchInstruction] = []
+    catalog = sorted(branch_catalog, key=lambda branch: branch.pc)
+    start_pc = first_trace_address(packets)
+    if start_pc is None:
+        start_pc = parse_hex_int(image_info.get("entry"))
+    if start_pc is None:
+        events.append({"type": "flow_gap", "reason": "missing start PC"})
+        return recovered, edges, {
+            "stage": "dynamic-mvp",
+            "start_pc": None,
+            "branches_recovered": 0,
+            "events": events,
+        }
+    if not catalog:
+        events.append({"type": "flow_gap", "reason": "empty branch catalog"})
+        return recovered, edges, {
+            "stage": "dynamic-mvp",
+            "start_pc": f"0x{start_pc:x}",
+            "branches_recovered": 0,
+            "events": events,
+        }
+
+    symbols = [
+        {
+            "name": symbol["name"],
+            "value": parse_hex_int(symbol["value"]) or 0,
+            "size": symbol["size"],
+        }
+        for symbol in image_info.get("symbols", [])
+    ]
+    atom_index = 0
+    cursor = start_pc
+    visits: dict[int, int] = {}
+    step_limit = max(16, len(catalog) * 4 + len(atoms) + 4)
+
+    def next_branch_at_or_after(pc: int) -> Optional[BranchInstruction]:
+        for branch in catalog:
+            if branch.pc >= pc:
+                return branch
+        return None
+
+    def next_resolved_atom() -> Optional[AtomResolution]:
+        nonlocal atom_index
+        while atom_index < len(atoms):
+            atom = atoms[atom_index]
+            atom_index += 1
+            if atom.state in {"committed", "mispredict", "pending"}:
+                return atom
+        return None
+
+    for _step in range(step_limit):
+        branch = next_branch_at_or_after(cursor)
+        if branch is None:
+            events.append({
+                "type": "flow_gap",
+                "reason": "no branch at or after cursor",
+                "cursor": f"0x{cursor:x}",
+            })
+            break
+        if branch.pc > cursor:
+            events.append({
+                "type": "linear_scan",
+                "from": f"0x{cursor:x}",
+                "to": f"0x{branch.pc:x}",
+            })
+
+        visits[branch.pc] = visits.get(branch.pc, 0) + 1
+        if visits[branch.pc] > 4:
+            events.append({
+                "type": "flow_gap",
+                "reason": "branch visit limit reached",
+                "pc": f"0x{branch.pc:x}",
+            })
+            break
+
+        dst = branch.dst
+        taken = branch.taken
+        flags = list(branch.flags) + ["dynamic-mvp"]
+        if branch.kind == "conditional_branch":
+            atom = next_resolved_atom()
+            if atom is None:
+                taken = "unknown"
+                dst = branch.pc + 4
+                flags.append("atom=missing")
+                events.append({
+                    "type": "flow_gap",
+                    "reason": "conditional branch without atom",
+                    "pc": f"0x{branch.pc:x}",
+                })
+            else:
+                taken = "yes" if atom.atom == "E" else "no"
+                dst = branch.dst if atom.atom == "E" else branch.pc + 4
+                flags.extend([
+                    f"atom_seq={atom.seq}",
+                    f"atom={atom.atom}",
+                    f"atom_state={atom.state}",
+                ])
+        elif branch.kind in {"branch_direct", "call_direct"}:
+            taken = "yes"
+        elif branch.kind in {"return", "branch_indirect", "call_indirect",
+                             "exception_return"}:
+            taken = "yes"
+            flags.append("target_unresolved")
+
+        recovered_branch = BranchInstruction(
+            seq=len(recovered),
+            pc=branch.pc,
+            dst=dst,
+            kind=branch.kind,
+            taken=taken,
+            symbol_src=branch.symbol_src,
+            symbol_dst=find_symbol(symbols, dst),
+            flags=flags,
+        )
+        recovered.append(recovered_branch)
+        edges.append({
+            "seq": recovered_branch.seq,
+            "src_pc": f"0x{recovered_branch.pc:x}",
+            "dst_pc": f"0x{dst:x}" if dst is not None else None,
+            "type": recovered_branch.kind,
+            "taken": recovered_branch.taken,
+            "flags": recovered_branch.flags,
+        })
+
+        if branch.kind in {"return", "branch_indirect", "call_indirect",
+                           "exception_return"}:
+            events.append({
+                "type": "flow_stop",
+                "reason": f"{branch.kind} target is unresolved in MVP",
+                "pc": f"0x{branch.pc:x}",
+            })
+            break
+        if dst is None:
+            break
+        cursor = dst
+    else:
+        events.append({"type": "flow_gap", "reason": "step limit reached"})
+
+    summary = {
+        "stage": "dynamic-mvp",
+        "start_pc": f"0x{start_pc:x}",
+        "branches_recovered": len(recovered),
+        "atom_cursor": atom_index,
+        "events": events,
+    }
+    return recovered, edges, summary
+
+
 def decode_trace(trace: bytes, image: str) -> dict:
     packets = parse_trace_packets(trace)
     atom_stream, speculation = resolve_speculation(packets)
     image_info, branch_catalog = parse_elf_branch_catalog(image)
+    recovered_branches, edges, flow_recovery = recover_aarch64_flow(
+        packets, atom_stream, image_info, branch_catalog
+    )
     return {
         "packets": packets,
         "atom_stream": atom_stream,
         "speculation": speculation,
         "image_info": image_info,
         "branch_catalog": branch_catalog,
+        "recovered_branches": recovered_branches,
+        "edges": edges,
+        "flow_recovery": flow_recovery,
     }
 
 
@@ -873,11 +1054,14 @@ def write_flow(path: Path, trace: bytes, metadata: dict, image: str,
     packets = decoded["packets"]
     atom_stream = decoded["atom_stream"]
     branch_catalog = decoded["branch_catalog"]
-    warnings = ["dynamic AArch64 flow recovery is not implemented yet"]
+    warnings = [
+        "dynamic AArch64 flow recovery is an MVP and stops at unresolved "
+        "return/indirect targets"
+    ]
     warnings.extend(decoded["image_info"].get("warnings", []))
     flow = {
         "format": "ete-flow-v1",
-        "decoder_stage": "static-branch-mvp",
+        "decoder_stage": "dynamic-flow-mvp",
         "trace_bytes": len(trace),
         "metadata_format": metadata.get("format", "unknown"),
         "image": image,
@@ -889,8 +1073,13 @@ def write_flow(path: Path, trace: bytes, metadata: dict, image: str,
         "speculation": decoded["speculation"],
         "branch_catalog_count": len(branch_catalog),
         "branch_catalog": [branch.to_json() for branch in branch_catalog],
+        "recovered_branch_count": len(decoded["recovered_branches"]),
+        "recovered_branches": [
+            branch.to_json() for branch in decoded["recovered_branches"]
+        ],
         "basic_blocks": [],
-        "edges": [],
+        "edges": decoded["edges"],
+        "flow_recovery": decoded["flow_recovery"],
         "events": packet_events(packets),
         "warnings": warnings,
     }
@@ -938,7 +1127,7 @@ def write_branches(path: Path, branches: list[BranchInstruction],
 def write_dot(path: Path, branches: list[BranchInstruction]) -> None:
     lines = [
         "digraph ete_flow {",
-        "  label=\"ETE static branch catalog MVP\";",
+        "  label=\"ETE dynamic flow MVP\";",
         "  labelloc=\"t\";",
     ]
     for branch in branches:
@@ -957,8 +1146,9 @@ def main() -> int:
     trace, metadata = load_inputs(args)
     decoded = decode_trace(trace, args.image)
     write_flow(Path(args.out_flow), trace, metadata, args.image, decoded)
-    write_branches(Path(args.out_branches), decoded["branch_catalog"], metadata)
-    write_dot(Path(args.out_dot), decoded["branch_catalog"])
+    output_branches = decoded["recovered_branches"] or decoded["branch_catalog"]
+    write_branches(Path(args.out_branches), output_branches, metadata)
+    write_dot(Path(args.out_dot), output_branches)
     return 0
 
 

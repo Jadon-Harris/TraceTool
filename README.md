@@ -126,6 +126,10 @@ Implemented in the first stage:
 - `ete_decode.py` static AArch64 branch catalog MVP for ELF64 little-endian
   AArch64 images, including common direct, conditional, call, return, and
   indirect branch instructions.
+- `ete_decode.py` dynamic flow MVP that starts from the first trace address or
+  ELF entry, uses resolved E/N atoms for conditional branches, and emits
+  recovered branches plus DOT edges until an unresolved return or indirect
+  target is reached.
 - Metadata JSON includes TRCIDR placeholders, ETE config placeholders, and image
   address fields.
 
@@ -137,8 +141,9 @@ Not implemented yet:
 - Persistent `start`, `stop`, and `dump` capture commands.
 - Full ETE packet decoding for all configuration-dependent payload fields.
 - Full speculation resolution across all ETE configuration modes.
-- Dynamic AArch64 ELF/image flow recovery that merges ETE atoms with the static
-  branch catalog into a real executed path.
+- Complete dynamic AArch64 flow recovery for call stacks, return targets,
+  indirect branches, exception edges, long-running loops, and validation against
+  real target ETE traces.
 
 ## Offline Workflow Goal
 

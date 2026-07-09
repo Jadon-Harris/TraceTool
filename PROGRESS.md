@@ -29,6 +29,9 @@
   - 阶段 10 AArch64 ELF 静态 branch catalog MVP。
   - 阶段 10 `ete_decode.py` 可解析 ELF64 little-endian AArch64 `.text`、section table、symtab/dynsym。
   - 阶段 10 可识别 AArch64 `B`、`BL`、`B.cond`、`CBZ/CBNZ`、`TBZ/TBNZ`、`RET`、`BR`、`BLR`、`ERET`，并输出 `branch_catalog`、branches.csv 静态行、flow.dot 静态边。
+  - 阶段 10 dynamic flow recovery MVP。
+  - 阶段 10 基于 trace address packet / ELF entry 选择起点，结合 `atom_stream` 的 E/N 结果恢复条件分支 taken/fallthrough。
+  - 阶段 10 `flow.json` 输出 `recovered_branches`、`edges`、`flow_recovery`；branches.csv 和 flow.dot 优先输出动态恢复结果。
 - 未完成：
   - 经目标工具链验证的完整 TRC/TRB sysreg encoding 读写。
   - target 物理连续 buffer、TRBE translation regime 配置和 cache/DMA 同步。
@@ -36,7 +39,7 @@
   - start/stop/dump 持久 capture CLI。
   - 完整 ETE packet parser，包括所有配置相关变长字段、条件指令 trace、data trace、VMID/CtxtID 宽度感知解析。
   - 完整 speculation resolution，包括所有 ETE 配置模式、周期精确窗口、异常/trace restart 边界和与 instruction-flow 的联动验证。
-  - 动态 AArch64 ELF/image 执行流恢复，即把 ETE packet/atom stream 和 branch catalog 严格合并为真实路径。
+  - 完整动态 AArch64 ELF/image 执行流恢复，包括调用栈、返回目标、indirect branch 目标、异常边界、循环长期运行和与真实 ETE packet 序列交叉验证。
 - 当前可运行命令：
   - `cmake -S . -B build-host -DETE_TRBE_TARGET=OFF`
   - `cmake --build build-host`
@@ -61,7 +64,7 @@ Host/Mac tests:
   - `make test`
   - `./build-host/ete_trace probe`
   - `git diff --check`
-- 结果：阶段 1、阶段 2、阶段 3、阶段 4、阶段 5、阶段 6、阶段 7、阶段 8、阶段 9、阶段 10 静态 branch catalog MVP 均通过。`cmake` 当前 Mac shell 不可用时可使用 Makefile fallback 完成 host/mock 验证。
+- 结果：阶段 1、阶段 2、阶段 3、阶段 4、阶段 5、阶段 6、阶段 7、阶段 8、阶段 9、阶段 10 dynamic flow MVP 均通过。CMake host/mock 路径和 Makefile fallback 均已验证。
 
 Target build:
 - 是否已验证：否。
@@ -73,10 +76,10 @@ Hardware validation:
 
 ## Next Steps
 
-1. 阶段 10 后续：把 ETE atom stream 与 ELF branch catalog 合并为动态执行流。
-2. 阶段 11：添加 integration sample 和文档。
+1. 阶段 11：添加 integration sample 和文档。
+2. 后续增强：完善返回目标、indirect branch、异常和循环恢复。
 
 ## Hardware Validation Needed
 
 - 是否需要 Armv9-A FEAT_ETE/FEAT_TRBE 真机验证：是。
-- 当前哪些功能只通过 mock：`ete_trace probe`、`ete_trace record` raw/meta 输出、`ete_decode.py` packet parser/speculation/static branch catalog MVP、metadata JSON writer、TRBE buffer linearize、capture state machine、sysreg wrapper mock path、mock feature override、host/mock tests。
+- 当前哪些功能只通过 mock：`ete_trace probe`、`ete_trace record` raw/meta 输出、`ete_decode.py` packet parser/speculation/static branch catalog/dynamic flow MVP、metadata JSON writer、TRBE buffer linearize、capture state machine、sysreg wrapper mock path、mock feature override、host/mock tests。
