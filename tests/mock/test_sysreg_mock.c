@@ -3,8 +3,8 @@
 #include <stdio.h>
 
 /*
- * Sysreg boundary test. The default host build must never assemble or execute
- * real trace-register access, even on an AArch64 Mac.
+ * sysreg 边界测试。默认 host 构建即使运行在 AArch64 Mac 上，也绝不能汇编
+ * 或执行真实 trace-register 访问。
  */
 
 int main(void)
@@ -31,7 +31,7 @@ int main(void)
         return 1;
     }
 
-    /* Host barrier wrappers are intentionally no-ops but remain callable. */
+    /* host barrier wrapper 刻意是 no-op，但仍应保持可调用。 */
     ete_trbe_isb();
     ete_trbe_dsb_sy();
     ete_trbe_tsb_csync();

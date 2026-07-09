@@ -4,8 +4,8 @@
 #include <stdlib.h>
 
 /*
- * Probe override test. Environment variables let host tests exercise the
- * "feature present" path without implying real ETE/TRBE hardware validation.
+ * probe override 测试。环境变量让 host 测试能覆盖“feature present”路径，
+ * 但不表示完成了真实 ETE/TRBE 硬件验证。
  */
 
 int main(void)

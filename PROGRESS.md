@@ -36,7 +36,7 @@
   - 阶段 11 `tests/support/aarch64_decoder_sample.py` 提供可复用 synthetic trace / metadata / minimal AArch64 ELF fixture。
   - 阶段 11 `tests/integration/test_decoder_flow_sample.py` 显式验证 decoder 端到端输出 flow.json、branches.csv、flow.dot。
   - 阶段 11 `docs/decoder_integration_sample.md` 记录 sample 运行方式、预期输出和非硬件验证边界。
-  - review 注释补充：公共 API、mock/target 隔离、capture 状态机、TRBE buffer linearize、CLI record 流程、ETE packet parser、speculation resolver、ELF branch catalog、dynamic flow MVP 和测试 fixture 均已补充说明性注释。
+  - review 注释补充：公共 API、mock/target 隔离、capture 状态机、TRBE buffer linearize、CLI record 流程、ETE packet parser、speculation resolver、ELF branch catalog、dynamic flow MVP 和测试 fixture 均已补充中文说明性注释。
 - 未完成：
   - 经目标工具链验证的完整 TRC/TRB sysreg encoding 读写。
   - target 物理连续 buffer、TRBE translation regime 配置和 cache/DMA 同步。

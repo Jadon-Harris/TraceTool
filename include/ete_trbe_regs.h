@@ -4,8 +4,8 @@
 #include <stdint.h>
 
 /*
- * ETE/TRBE register names used by this project. Encoded sysreg access is kept
- * behind ete_trbe_sysreg.h so host builds never assemble target instructions.
+ * 本项目使用的 ETE/TRBE register 名称。带 encoding 的 sysreg 访问统一放在
+ * ete_trbe_sysreg.h 后面，确保 host 构建永远不会汇编 target 指令。
  */
 
 #define ETE_TRBE_REG_TRCPRGCTLR "TRCPRGCTLR"

@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Minimal ETE raw trace decoder.
+"""最小 ETE raw trace decoder。
 
-The packet parser is intentionally small, but it follows the ETMv4/ETE packet
-header classes used by Arm OpenCSD. It emits packet records for later
-speculation and instruction-flow recovery stages; it does not yet follow the
-program image or resolve branch targets.
+packet parser 刻意保持小范围实现，但遵循 Arm OpenCSD 使用的 ETMv4/ETE packet
+header 分类。它会产出 packet 记录，供后续 speculation 和 instruction-flow
+恢复阶段使用。
 """
 
 import argparse
@@ -21,7 +20,7 @@ ASYNC_PACKET = b"\x00" * 11 + b"\x80"
 
 @dataclass
 class EtePacket:
-    """One decoded ETE packet with original byte offset for audit/debug."""
+    """一个已解码 ETE packet，保留原始 byte offset 方便审计和调试。"""
 
     offset: int
     raw: bytes
@@ -42,7 +41,7 @@ class EtePacket:
 
 @dataclass
 class AtomResolution:
-    """One E/N atom after MVP speculation handling."""
+    """经过 MVP speculation 处理后的一个 E/N atom。"""
 
     seq: int
     packet_offset: int
@@ -69,7 +68,7 @@ class AtomResolution:
 
 @dataclass
 class BranchInstruction:
-    """Static or recovered AArch64 branch row shared by JSON, CSV, and DOT."""
+    """JSON、CSV、DOT 共用的一条静态或已恢复 AArch64 branch 记录。"""
 
     seq: int
     pc: int
@@ -126,7 +125,7 @@ def load_inputs(args: argparse.Namespace) -> tuple[bytes, dict]:
 
 
 def read_cont_u32(trace: bytes, start: int, limit: int = 5) -> tuple[int, int]:
-    """Read ETM/ETE continuation bytes as a little-endian 7-bit stream."""
+    """按 little-endian 7-bit stream 读取 ETM/ETE continuation bytes。"""
 
     value = 0
     pos = start
@@ -142,7 +141,7 @@ def read_cont_u32(trace: bytes, start: int, limit: int = 5) -> tuple[int, int]:
 
 
 def read_cont_u64(trace: bytes, start: int) -> tuple[int, int, int]:
-    """Read a timestamp-style continuation field and report useful bit width."""
+    """读取 timestamp 风格 continuation 字段，并返回有效 bit 宽度。"""
 
     value = 0
     pos = start
@@ -160,7 +159,7 @@ def read_cont_u64(trace: bytes, start: int) -> tuple[int, int, int]:
 
 
 def parse_addr_payload(header: int, payload: bytes, isa: int, bits: int) -> int:
-    """Rebuild an address payload, accounting for A64/A32 low-bit encoding."""
+    """还原 address payload，同时处理 A64/A32 低位编码差异。"""
 
     if bits == 32:
         if isa == 0:
@@ -193,7 +192,7 @@ def parse_addr_payload(header: int, payload: bytes, isa: int, bits: int) -> int:
 
 
 def parse_short_addr(trace: bytes, start: int, isa: int) -> tuple[int, int, int]:
-    """Decode short address payloads used by address and Q packet forms."""
+    """解码 address 和 Q packet 形式使用的 short address payload。"""
 
     first = trace[start]
     shift = 2 if isa == 0 else 1
@@ -210,11 +209,11 @@ def parse_short_addr(trace: bytes, start: int, isa: int) -> tuple[int, int, int]
 
 
 def atom_pattern(header: int) -> tuple[str, int, int]:
-    """Map compact atom packet headers to an E/N string.
+    """把紧凑 atom packet header 映射为 E/N 字符串。
 
-    E means executed/taken for a conditional branch; N means not executed/not
-    taken. The mapping follows ETMv4/ETE atom packet families, but this decoder
-    still treats the result as an MVP input to later flow recovery.
+    E 表示条件分支 executed/taken，N 表示 not executed/not taken。映射遵循
+    ETMv4/ETE atom packet family，但当前 decoder 仍只把结果作为后续 flow
+    recovery 的 MVP 输入。
     """
 
     f4_patterns = [0xE, 0x0, 0xA, 0x5]
@@ -249,7 +248,7 @@ def atom_pattern(header: int) -> tuple[str, int, int]:
 
 
 def parse_trace_info(trace: bytes, offset: int) -> tuple[EtePacket, int]:
-    """Parse trace-info enough to preserve present optional sections."""
+    """解析 trace-info，至少保留已出现的 optional section。"""
 
     pos = offset + 1
     controls = []
@@ -281,17 +280,16 @@ def parse_trace_info(trace: bytes, offset: int) -> tuple[EtePacket, int]:
 
 
 def parse_packet(trace: bytes, offset: int) -> tuple[EtePacket, int]:
-    """Decode one packet and return the next byte offset.
+    """解码一个 packet，并返回下一个 byte offset。
 
-    Unknown, reserved, and truncated cases become explicit packets instead of
-    exceptions so downstream JSON can show where the byte stream stopped being
-    understood.
+    unknown、reserved、truncated 情况会变成显式 packet，而不是直接抛异常；
+    这样下游 JSON 能显示 byte stream 从哪里开始无法理解。
     """
 
     header = trace[offset]
 
     if header == 0x00:
-        # Header 0x00 is either the long async sequence or a two-byte extension.
+        # Header 0x00 要么是长 async 序列，要么是两字节 extension。
         if trace.startswith(ASYNC_PACKET, offset):
             end = offset + len(ASYNC_PACKET)
             return EtePacket(offset, trace[offset:end], "async"), end
@@ -482,7 +480,7 @@ def parse_packet(trace: bytes, offset: int) -> tuple[EtePacket, int]:
 
 
 def parse_trace_packets(trace: bytes) -> list[EtePacket]:
-    """Best-effort packetize the whole raw trace byte stream."""
+    """尽力把完整 raw trace byte stream 切成 packet。"""
 
     packets = []
     offset = 0
@@ -501,7 +499,7 @@ def parse_trace_packets(trace: bytes) -> list[EtePacket]:
 
 
 def packet_events(packets: list[EtePacket]) -> list[dict]:
-    """Promote packet-level data loss or malformed bytes into flow events."""
+    """把 packet 级别的数据丢失或格式错误提升为 flow event。"""
 
     events = []
     for packet in packets:
@@ -523,11 +521,11 @@ def packet_events(packets: list[EtePacket]) -> list[dict]:
 
 
 def resolve_speculation(packets: list[EtePacket]) -> tuple[list[AtomResolution], dict]:
-    """Resolve atom packets with the small commit/cancel model used by the MVP.
+    """用 MVP 的小型 commit/cancel 模型解析 atom packet。
 
-    Without resolution packets, all atoms are treated as committed because many
-    simple traces do not enable speculation reporting. Once commit/cancel
-    packets appear, atoms stay pending until explicitly resolved.
+    如果没有 resolution packet，所有 atom 都视为 committed，因为很多简单 trace
+    不启用 speculation reporting。一旦出现 commit/cancel packet，atom 会保持
+    pending，直到被显式 resolved。
     """
 
     atoms: list[AtomResolution] = []
@@ -537,7 +535,7 @@ def resolve_speculation(packets: list[EtePacket]) -> tuple[list[AtomResolution],
 
     def append_atoms(packet: EtePacket, state: str,
                      flags: Optional[list[str]] = None) -> None:
-        """Append every E/N character from one packet as an independently tracked atom."""
+        """把一个 packet 中的每个 E/N 字符追加为可独立跟踪的 atom。"""
 
         atom_text = packet.fields.get("atoms", "")
         for atom_index, atom in enumerate(atom_text):
@@ -571,7 +569,7 @@ def resolve_speculation(packets: list[EtePacket]) -> tuple[list[AtomResolution],
             saw_resolution_packet = True
             count = int(packet.fields.get("commit_elements", 0))
             committed = 0
-            # Commits retire the oldest pending atoms in program order.
+            # commit 按程序顺序 retire 最老的 pending atom。
             while count > 0 and pending:
                 atom_seq = pending.pop(0)
                 atoms[atom_seq].state = "committed"
@@ -597,7 +595,7 @@ def resolve_speculation(packets: list[EtePacket]) -> tuple[list[AtomResolution],
             count = int(packet.fields.get("cancel_elements", 0))
             canceled = 0
             flags = ["mispredict"] if packet.kind == "cancel_mispredict" else []
-            # Cancels remove the youngest speculative atoms first.
+            # cancel 优先移除最新的 speculative atom。
             while count > 0 and pending:
                 atom_seq = pending.pop()
                 atoms[atom_seq].state = "canceled"
@@ -644,7 +642,7 @@ def resolve_speculation(packets: list[EtePacket]) -> tuple[list[AtomResolution],
 
 
 def sign_extend(value: int, bits: int) -> int:
-    """Sign-extend an instruction immediate of the given bit width."""
+    """对指定 bit 宽度的指令立即数做符号扩展。"""
 
     sign_bit = 1 << (bits - 1)
     if value & sign_bit:
@@ -653,7 +651,7 @@ def sign_extend(value: int, bits: int) -> int:
 
 
 def read_c_string(blob: bytes, offset: int) -> str:
-    """Read a NUL-terminated string from an ELF string table."""
+    """从 ELF string table 读取 NUL 结尾字符串。"""
 
     if offset < 0 or offset >= len(blob):
         return ""
@@ -664,10 +662,10 @@ def read_c_string(blob: bytes, offset: int) -> str:
 
 
 def decode_aarch64_branch(insn: int, pc: int) -> Optional[dict]:
-    """Recognize the AArch64 branch instructions needed for flow MVP.
+    """识别 flow MVP 需要的 AArch64 branch 指令。
 
-    The masks intentionally cover common control-flow opcodes only. Everything
-    else returns None and is treated as linear code between branch records.
+    mask 刻意只覆盖常见 control-flow opcode。其他指令返回 None，并在 branch
+    记录之间视为线性代码。
     """
 
     if (insn & 0x7C000000) == 0x14000000:
@@ -748,7 +746,7 @@ def decode_aarch64_branch(insn: int, pc: int) -> Optional[dict]:
 
 
 def find_symbol(symbols: list[dict], addr: Optional[int]) -> str:
-    """Return the nearest containing symbol name for an address."""
+    """返回包含某地址的最接近 symbol 名。"""
 
     if addr is None:
         return ""
@@ -765,7 +763,7 @@ def find_symbol(symbols: list[dict], addr: Optional[int]) -> str:
 
 
 def parse_hex_int(value: object) -> Optional[int]:
-    """Accept JSON-style hex strings or integers and normalize to int."""
+    """接受 JSON 风格 hex string 或整数，并归一化为 int。"""
 
     if value is None:
         return None
@@ -780,7 +778,7 @@ def parse_hex_int(value: object) -> Optional[int]:
 
 
 def parse_elf_symbols(data: bytes, sections: list[dict]) -> list[dict]:
-    """Extract names and ranges from ELF symtab/dynsym sections."""
+    """从 ELF symtab/dynsym section 提取名称和地址范围。"""
 
     symbols = []
     for section in sections:
@@ -812,10 +810,10 @@ def parse_elf_symbols(data: bytes, sections: list[dict]) -> list[dict]:
 
 
 def parse_elf_branch_catalog(image_path: str) -> tuple[dict, list[BranchInstruction]]:
-    """Build a static branch catalog from an ELF64 little-endian AArch64 image.
+    """从 ELF64 little-endian AArch64 image 构建静态 branch catalog。
 
-    Failures are reported in info["warnings"] instead of raising so the decoder
-    can still emit packet/speculation results for malformed or non-ELF inputs.
+    解析失败写入 info["warnings"]，而不是直接抛异常；这样 malformed 或非 ELF
+    输入仍能产出 packet/speculation 结果。
     """
 
     path = Path(image_path)
@@ -868,7 +866,7 @@ def parse_elf_branch_catalog(image_path: str) -> tuple[dict, list[BranchInstruct
         info["warnings"].append("ELF section table is missing")
         return info, branches
 
-    # Section names are needed to find .text and linked string tables.
+    # 需要 section name 来定位 .text 和链接到的 string table。
     sections = []
     for index in range(shnum):
         offset = shoff + index * shentsize
@@ -914,7 +912,7 @@ def parse_elf_branch_catalog(image_path: str) -> tuple[dict, list[BranchInstruct
         for sym in symbols
     ]
 
-    # Static scan is 4-byte aligned because AArch64 instructions are fixed width.
+    # AArch64 指令定长 4 字节，因此静态扫描按 4 字节对齐推进。
     text_data = data[text["offset"]:text["offset"] + text["size"]]
     if len(text_data) < text["size"]:
         info["warnings"].append("ELF .text section is truncated")
@@ -939,7 +937,7 @@ def parse_elf_branch_catalog(image_path: str) -> tuple[dict, list[BranchInstruct
 
 
 def first_trace_address(packets: list[EtePacket]) -> Optional[int]:
-    """Use the first trace address packet as dynamic-flow start when present."""
+    """如果 trace 里有 address packet，就用第一个 address 作为动态 flow 起点。"""
 
     for packet in packets:
         if packet.kind in {"address", "address_context"}:
@@ -952,11 +950,10 @@ def recover_aarch64_flow(packets: list[EtePacket],
                          image_info: dict,
                          branch_catalog: list[BranchInstruction]
                          ) -> tuple[list[BranchInstruction], list[dict], dict]:
-    """Combine trace atoms with the static branch catalog into a path MVP.
+    """把 trace atom 和静态 branch catalog 合成为路径 MVP。
 
-    This is intentionally conservative: it follows direct branches and calls,
-    consumes one resolved atom for each conditional branch, and stops when the
-    next target would require call-stack or indirect-target reconstruction.
+    这里刻意保守：跟随 direct branch/call；每个 conditional branch 消费一个
+    resolved atom；一旦下一步需要调用栈或 indirect target 重建就停止。
     """
 
     events = []
@@ -997,7 +994,7 @@ def recover_aarch64_flow(packets: list[EtePacket],
     step_limit = max(16, len(catalog) * 4 + len(atoms) + 4)
 
     def next_branch_at_or_after(pc: int) -> Optional[BranchInstruction]:
-        """Find the next catalog branch after linear execution from pc."""
+        """从 pc 线性执行后，寻找 catalog 中下一个 branch。"""
 
         for branch in catalog:
             if branch.pc >= pc:
@@ -1005,7 +1002,7 @@ def recover_aarch64_flow(packets: list[EtePacket],
         return None
 
     def next_resolved_atom() -> Optional[AtomResolution]:
-        """Skip canceled atoms because they did not survive speculation."""
+        """跳过 canceled atom，因为它们没有从 speculation 中存活。"""
 
         nonlocal atom_index
         while atom_index < len(atoms):
@@ -1044,7 +1041,7 @@ def recover_aarch64_flow(packets: list[EtePacket],
         taken = branch.taken
         flags = list(branch.flags) + ["dynamic-mvp"]
         if branch.kind == "conditional_branch":
-            # In this MVP, E selects the encoded branch target and N falls through.
+            # 在当前 MVP 中，E 选择编码的 branch target，N 选择 fallthrough。
             atom = next_resolved_atom()
             if atom is None:
                 taken = "unknown"
@@ -1067,7 +1064,7 @@ def recover_aarch64_flow(packets: list[EtePacket],
             taken = "yes"
         elif branch.kind in {"return", "branch_indirect", "call_indirect",
                              "exception_return"}:
-            # These need call-stack or data-flow recovery; record the boundary.
+            # 这些需要调用栈或 data-flow 恢复；当前只记录边界。
             taken = "yes"
             flags.append("target_unresolved")
 
@@ -1116,7 +1113,7 @@ def recover_aarch64_flow(packets: list[EtePacket],
 
 
 def decode_trace(trace: bytes, image: str) -> dict:
-    """Run the decoder pipeline and keep intermediate artifacts for outputs."""
+    """运行 decoder pipeline，并保留输出所需的中间产物。"""
 
     packets = parse_trace_packets(trace)
     atom_stream, speculation = resolve_speculation(packets)
@@ -1138,7 +1135,7 @@ def decode_trace(trace: bytes, image: str) -> dict:
 
 def write_flow(path: Path, trace: bytes, metadata: dict, image: str,
                decoded: dict) -> None:
-    """Write the rich JSON output used for review and later tooling."""
+    """写出用于 review 和后续工具消费的完整 JSON 输出。"""
 
     packets = decoded["packets"]
     atom_stream = decoded["atom_stream"]
@@ -1177,7 +1174,7 @@ def write_flow(path: Path, trace: bytes, metadata: dict, image: str,
 
 def write_branches(path: Path, branches: list[BranchInstruction],
                    metadata: dict, source: str) -> None:
-    """Write the compact branch table; source marks dynamic vs static fallback."""
+    """写出紧凑 branch 表；source 标记 dynamic 输出或 static fallback。"""
 
     cpu = metadata.get("cpu", "")
     with path.open("w", newline="", encoding="utf-8") as branches_file:
@@ -1216,7 +1213,7 @@ def write_branches(path: Path, branches: list[BranchInstruction],
 
 
 def write_dot(path: Path, branches: list[BranchInstruction]) -> None:
-    """Write a minimal DOT graph for quick visual inspection."""
+    """写出最小 DOT 图，便于快速可视化检查。"""
 
     lines = [
         "digraph ete_flow {",

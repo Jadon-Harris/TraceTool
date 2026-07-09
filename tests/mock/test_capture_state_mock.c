@@ -3,8 +3,8 @@
 #include <stdio.h>
 
 /*
- * Mock capture state-machine test. This exercises lifecycle ordering without
- * touching target registers or requiring cross-process persistence.
+ * mock capture 状态机测试。这里验证生命周期顺序，不触碰 target 寄存器，
+ * 也不要求跨进程持久状态。
  */
 
 int main(void)
@@ -13,7 +13,7 @@ int main(void)
     struct ete_trbe_config config;
     struct ete_trbe_result result;
 
-    /* Starting before config should be rejected even in the mock path. */
+    /* 即使是 mock 路径，config 之前 start 也必须被拒绝。 */
     if (ete_trbe_start_cpu(0) != ETE_TRBE_ERR_BAD_STATE) {
         fprintf(stderr, "start before config should fail with bad state\n");
         return 1;
@@ -61,7 +61,7 @@ int main(void)
         return 1;
     }
 
-    /* Stop should snapshot the mock buffer state into the public result. */
+    /* stop 应把 mock buffer 状态快照写入公共 result。 */
     if (result.trbbaser != buffer.base ||
         result.trblimitr != buffer.limit ||
         result.trbptr != buffer.write_ptr ||

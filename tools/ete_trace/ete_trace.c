@@ -29,7 +29,7 @@ struct record_args {
     const char *meta;
 };
 
-/* Parse human-friendly buffer sizes such as 64K or 1M. */
+/* 解析 64K、1M 这类面向用户的 buffer size 写法。 */
 static int parse_size_arg(const char *text, size_t *size)
 {
     char *end = NULL;
@@ -74,7 +74,7 @@ static int write_bytes_file(const char *path, const uint8_t *data, size_t size)
     return 0;
 }
 
-/* Keep metadata writes separate from raw writes so record cleanup is simple. */
+/* metadata 写入和 raw 写入分开，record 出错清理会更直接。 */
 static int write_text_file(const char *path, const char *text)
 {
     FILE *file = fopen(path, "wb");
@@ -103,7 +103,7 @@ static int parse_record_args(int argc, char **argv, struct record_args *args)
 {
     int i;
 
-    /* Defaults are intentionally host-safe and require explicit output paths. */
+    /* 默认值刻意保持 host-safe；输出路径必须显式传入。 */
     args->cpu = 0;
     args->size = 1024u * 1024u;
     args->duration_ms = 0;
@@ -194,8 +194,7 @@ static int cmd_probe(int argc, char **argv)
 
     printf("CPU%u:\n", cpu);
     /*
-     * Mock output is worded loudly so logs cannot be confused with target-board
-     * capability probing.
+     * mock 输出必须足够醒目，避免日志被误认为是目标板能力探测。
      */
     if (caps.is_mock) {
         printf("  FEAT_ETE: %s\n", caps.has_ete ? "mock supported" : "mock");
@@ -232,8 +231,8 @@ static int cmd_record(int argc, char **argv)
     }
 
     /*
-     * record is one-shot: allocate, configure, start, stop, linearize, write.
-     * There is no cross-process capture state yet; status reports that plainly.
+     * record 是 one-shot：allocate、configure、start、stop、linearize、write。
+     * 当前还没有跨进程 capture 状态，status 命令会明确说明这一点。
      */
     rc = ete_trbe_probe_cpu(args.cpu, &caps);
     if (rc != ETE_TRBE_OK && rc != ETE_TRBE_ERR_UNSUPPORTED) {
@@ -249,8 +248,7 @@ static int cmd_record(int argc, char **argv)
     }
 
     /*
-     * These defaults keep the CLI shape close to target capture while remaining
-     * harmless in host/mock mode.
+     * 这些默认值让 CLI 形状贴近 target capture，同时在 host/mock 模式下无害。
      */
     memset(&config, 0, sizeof(config));
     config.cpu = args.cpu;
@@ -265,8 +263,8 @@ static int cmd_record(int argc, char **argv)
     }
     if (rc == ETE_TRBE_OK) {
         /*
-         * Mock builds do not sleep or synthesize trace. Target builds will use
-         * duration_ms around the real hardware start/stop sequence.
+         * mock 构建不 sleep，也不合成 trace。target 构建后续会把 duration_ms
+         * 用在真实硬件 start/stop 序列周围。
          */
         (void)args.duration_ms;
         rc = ete_trbe_stop_cpu(args.cpu, &result);
@@ -278,8 +276,8 @@ static int cmd_record(int argc, char **argv)
     }
 
     /*
-     * Allocate up to the whole buffer so wrapped captures can be linearized
-     * without a second sizing pass.
+     * 按整个 buffer 分配输出空间，这样 wrapped capture 可以直接 linearize，
+     * 不需要第二次 sizing pass。
      */
     linear = malloc(buffer.size == 0 ? 1 : buffer.size);
     if (linear == NULL) {
@@ -328,7 +326,7 @@ static int cmd_record(int argc, char **argv)
 
 static int cmd_status(void)
 {
-    /* Status is intentionally honest: no daemon or persistent capture yet. */
+    /* status 刻意讲实话：目前还没有 daemon 或持久 capture。 */
     printf("Status: process-local CLI skeleton\n");
     printf("Capture persistence: not implemented; use record for one-shot capture\n");
     printf("Hardware validation: required for real ETE/TRBE\n");

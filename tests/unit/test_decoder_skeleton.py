@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Unit-level contract test for ete_decode.py output formats.
+"""ete_decode.py 输出格式的单元级合约测试。
 
-The heavy fixture construction lives in tests/support so this file can focus on
-the decoder contract: packet list, atom resolution, branch catalog, recovered
-flow, CSV, and DOT.
+较重的 fixture 构造放在 tests/support 中，这个文件只关注 decoder 合约：
+packet list、atom resolution、branch catalog、recovered flow、CSV 和 DOT。
 """
 
 import json

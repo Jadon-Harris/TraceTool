@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Synthetic AArch64 ELF and ETE byte stream used by decoder tests.
+"""decoder 测试使用的 synthetic AArch64 ELF 和 ETE byte stream。
 
-The sample is intentionally tiny and host-only. It does not claim to be a
-hardware ETE capture; it is a deterministic fixture for decoder plumbing.
+这个样本刻意很小，而且只用于 host。它不代表硬件 ETE capture，只是 decoder
+管线的确定性 fixture。
 """
 
 import struct
@@ -16,12 +16,12 @@ def build_sample_trace() -> bytes:
     return (
         b"\x00" * 11
         + b"\x80"  # async
-        + b"\x01\x00"  # trace-info with no optional sections
+        + b"\x01\x00"  # 不带 optional section 的 trace-info
         + b"\x04"  # trace-on
         + b"\xf6"  # atom N
-        + b"\x2d\x01"  # commit one atom
+        + b"\x2d\x01"  # commit 一个 atom
         + b"\xf7"  # atom E
-        + b"\x35"  # cancel one atom
+        + b"\x35"  # cancel 一个 atom
         + b"\x00\x05"  # overflow
         + b"\x00\x03"  # discard
         + b"\x9d\x00\x00\x40\x00\x00\x00\x00\x00"  # address 0x400000

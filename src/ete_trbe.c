@@ -13,9 +13,8 @@
 #define ETE_TRBE_MAX_CPUS 256u
 
 /*
- * The capture state is process-local by design at this stage. A future daemon
- * or kernel-facing implementation can replace this table without changing the
- * CLI record/probe contract.
+ * 当前阶段 capture 状态刻意保持为进程内状态。后续如果增加 daemon 或内核侧
+ * 实现，可以替换这张表，而不改变 CLI record/probe 合约。
  */
 enum capture_state {
     CAPTURE_IDLE = 0,
@@ -24,7 +23,7 @@ enum capture_state {
     CAPTURE_STOPPED
 };
 
-/* One slot tracks the mock lifecycle for a single CPU id. */
+/* 每个 slot 跟踪一个 CPU id 的 mock capture 生命周期。 */
 struct capture_slot {
     enum capture_state state;
     struct ete_trbe_config config;
@@ -78,8 +77,8 @@ int ete_trbe_probe_cpu(unsigned int cpu, struct ete_trbe_caps *caps)
 
 #if defined(ETE_TRBE_TARGET) && defined(__aarch64__)
     /*
-     * Never key real sysreg access on __aarch64__ alone: Apple Silicon hosts
-     * are AArch64 too. ETE_TRBE_TARGET is the explicit opt-in for board builds.
+     * 绝不能只用 __aarch64__ 决定是否访问真实 sysreg：Apple Silicon host
+     * 也是 AArch64。ETE_TRBE_TARGET 才是面向目标板构建的显式开关。
      */
     uint64_t id_aa64dfr0 = 0;
     uint64_t tracever;
@@ -113,9 +112,8 @@ int ete_trbe_probe_cpu(unsigned int cpu, struct ete_trbe_caps *caps)
                                                 ETE_TRBE_ERR_UNSUPPORTED;
 #else
     /*
-     * Host builds are deliberately boring: feature presence is synthetic and
-     * visible in output as mock-only, so a Mac test cannot be mistaken for
-     * hardware validation.
+     * host 构建刻意保持“无惊喜”：feature presence 是合成值，输出也明确
+     * 标记 mock-only，避免把 Mac 测试误认为硬件验证。
      */
     caps->has_ete = mock_env_enabled("ETE_TRBE_MOCK_HAS_ETE");
     caps->has_trbe = mock_env_enabled("ETE_TRBE_MOCK_HAS_TRBE");
@@ -132,8 +130,8 @@ int ete_trbe_alloc_buffer(unsigned int cpu, size_t size,
     void *mem = NULL;
 
     /*
-     * The alignment check mirrors the granularity a real TRBE sink will need
-     * while staying implementable with portable host allocation.
+     * 这里的对齐检查模拟真实 TRBE sink 需要的粒度，同时仍可用可移植的 host
+     * 分配方式实现。
      */
     if (buf == NULL || size == 0 ||
         (size % ETE_TRBE_BUFFER_ALIGNMENT) != 0) {
@@ -212,8 +210,8 @@ int ete_trbe_copy_valid_trace(const struct ete_trbe_buffer *buf,
         memcpy(out, base, valid);
     } else {
         /*
-         * TRBE wrap means the oldest byte is at write_ptr. Copy tail then head
-         * to produce the chronological byte stream expected by the decoder.
+         * TRBE wrap 后，write_ptr 指向最老的字节。先拷 tail 再拷 head，
+         * 生成 decoder 期望的时间顺序 byte stream。
          */
         head = buf->size - write_off;
         tail = write_off;
@@ -241,13 +239,13 @@ int ete_trbe_config_cpu(unsigned int cpu,
 
 #if defined(ETE_TRBE_TARGET) && defined(__aarch64__)
     /*
-     * Target config will eventually program TRBBASER/TRBLIMITR/TRBMAR and ETE
-     * filters here. Until those encodings are cross-toolchain validated, target
-     * builds fail explicitly instead of silently using host behavior.
+     * target config 后续会在这里编程 TRBBASER/TRBLIMITR/TRBMAR 和 ETE filter。
+     * 在这些 encoding 经过交叉工具链验证前，target 构建显式失败，不能静默
+     * 复用 host 行为。
      */
     return ETE_TRBE_ERR_UNSUPPORTED;
 #else
-    /* Mock config only snapshots the requested shape for start/stop tests. */
+    /* mock config 只保存请求形状，用于 start/stop 状态机测试。 */
     slot = &g_capture_slots[cpu];
     if (slot->state == CAPTURE_RUNNING) {
         return ETE_TRBE_ERR_BAD_STATE;
@@ -271,13 +269,13 @@ int ete_trbe_start_cpu(unsigned int cpu)
 
 #if defined(ETE_TRBE_TARGET) && defined(__aarch64__)
     /*
-     * Target implementation must configure the sink before enabling ETE:
-     * program TRBE, enable TRBLIMITR_EL1.E, synchronize, then set
-     * TRCPRGCTLR.EN with bounded TRCSTATR polling.
+     * target 实现必须先配置 sink，再启用 ETE：编程 TRBE，打开
+     * TRBLIMITR_EL1.E，完成同步，然后设置 TRCPRGCTLR.EN，并用有界轮询
+     * 等待 TRCSTATR 状态。
      */
     return ETE_TRBE_ERR_UNSUPPORTED;
 #else
-    /* Mock start/stop validates lifecycle ordering without touching hardware. */
+    /* mock start/stop 只验证生命周期顺序，不触碰任何硬件。 */
     slot = &g_capture_slots[cpu];
     if (slot->state != CAPTURE_CONFIGURED && slot->state != CAPTURE_STOPPED) {
         return ETE_TRBE_ERR_BAD_STATE;
@@ -299,9 +297,9 @@ int ete_trbe_stop_cpu(unsigned int cpu,
 
 #if defined(ETE_TRBE_TARGET) && defined(__aarch64__)
     /*
-     * Target implementation must stop source before sink: disable program-flow
-     * trace, ISB, TSB CSYNC, DSB, bounded TRCSTATR polling, then disable TRBE
-     * and read final TRB state.
+     * target 实现必须先停 source 再停 sink：关闭 program-flow trace，执行
+     * ISB、TSB CSYNC、DSB，有界轮询 TRCSTATR，然后关闭 TRBE 并读取最终
+     * TRB 状态。
      */
     return ETE_TRBE_ERR_UNSUPPORTED;
 #else
@@ -311,8 +309,8 @@ int ete_trbe_stop_cpu(unsigned int cpu,
     }
 
     /*
-     * The mock result echoes the software buffer view. Real target code should
-     * replace these with final TRB register reads after synchronization.
+     * mock result 复用软件 buffer 视图。真实 target 代码应在同步后读取最终
+     * TRB 寄存器状态，并用那些读数替换这里的字段。
      */
     memset(&slot->result, 0, sizeof(slot->result));
     slot->result.trbptr = slot->buffer.write_ptr;
@@ -331,7 +329,7 @@ int ete_trbe_dump_cpu(unsigned int cpu,
                       const char *trace_path,
                       const char *meta_path)
 {
-    /* Persistent start/stop/dump is intentionally not wired yet. */
+    /* 持久化 start/stop/dump 目前刻意不接线。 */
     (void)cpu;
     (void)trace_path;
     (void)meta_path;
@@ -357,8 +355,8 @@ int ete_trbe_write_metadata_json(char *out, size_t out_size,
     mode = caps->is_mock ? "mock" : "target";
     image = (image_path != NULL) ? image_path : "";
     /*
-     * The warning array is part of the metadata contract: downstream tools and
-     * reviewers can tell host/mock captures from hardware-validated captures.
+     * warnings 数组是 metadata 合约的一部分：下游工具和 reviewer 可以明确
+     * 区分 host/mock capture 和硬件验证过的 capture。
      */
     warning = caps->is_mock ?
         "\"host mock only, hardware validation required\"" : "";

@@ -4,8 +4,8 @@
 #include <stdio.h>
 
 /*
- * Unit test for TRBE ring-buffer linearization. The decoder expects trace bytes
- * in chronological order, so wrapped buffers must copy tail then head.
+ * TRBE ring-buffer linearize 单元测试。decoder 期望 trace 字节按时间顺序排列，
+ * 因此 wrapped buffer 必须先拷 tail 再拷 head。
  */
 
 static int check_bytes(const uint8_t *actual, const uint8_t *expected,
@@ -49,7 +49,7 @@ int main(void)
     buffer.write_ptr = buffer.base + 4;
     buffer.wrapped = false;
 
-    /* No wrap: valid bytes are simply [base, write_ptr). */
+    /* 未 wrap：有效字节就是 [base, write_ptr)。 */
     if (ete_trbe_copy_valid_trace(&buffer, out, sizeof(out), &written) !=
         ETE_TRBE_OK ||
         written != 4 ||
@@ -60,7 +60,7 @@ int main(void)
 
     buffer.wrapped = true;
 
-    /* Wrapped: write_ptr points at the oldest byte in the circular buffer. */
+    /* 已 wrap：write_ptr 指向环形 buffer 中最老的字节。 */
     if (ete_trbe_copy_valid_trace(&buffer, out, sizeof(out), &written) !=
         ETE_TRBE_OK ||
         written != 8 ||

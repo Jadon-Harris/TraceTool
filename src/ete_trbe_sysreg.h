@@ -28,9 +28,8 @@ enum ete_trbe_sysreg_id {
 };
 
 /*
- * Single predicate for the real-register boundary. The second half of the
- * condition is architecture, but ETE_TRBE_TARGET is the important safety latch:
- * host ARM64 machines must still compile the mock path.
+ * 真实寄存器访问边界的统一判断。条件后半部分是架构，但 ETE_TRBE_TARGET
+ * 才是关键安全锁：ARM64 host 机器仍必须编译 mock 路径。
  */
 static inline bool ete_trbe_sysreg_real_target_enabled(void)
 {
@@ -44,9 +43,8 @@ static inline bool ete_trbe_sysreg_real_target_enabled(void)
 #if defined(ETE_TRBE_TARGET) && defined(__aarch64__)
 
 /*
- * Named system-register access is used only where the compiler/toolchain knows
- * the architectural name. Implementation-defined TRC/TRB encodings stay gated
- * until target-toolchain validation proves them.
+ * 只有编译器/工具链认识架构寄存器名时才使用 named sysreg 访问。
+ * implementation-defined 的 TRC/TRB encoding 在目标工具链验证完成前继续关着。
  */
 #define ETE_TRBE_READ_SYSREG_NAMED(name)             \
     ({                                               \
@@ -81,7 +79,7 @@ static inline void ete_trbe_tsb_csync(void)
 
 #else
 
-/* Host barriers are no-ops so default tests never assemble target instructions. */
+/* host barrier 是 no-op，默认测试不会汇编 target-only 指令。 */
 static inline void ete_trbe_isb(void)
 {
 }
@@ -110,16 +108,15 @@ static inline int ete_trbe_sysreg_read(enum ete_trbe_sysreg_id reg,
         return 0;
     default:
         /*
-         * Stage 2 intentionally keeps TRC/TRB implementation register access
-         * behind this API. Concrete encodings are enabled alongside the target
-         * probe once they can be validated with the target toolchain.
+         * 当前阶段刻意把 TRC/TRB implementation register 访问挡在这个 API 后面。
+         * 等目标工具链能验证具体 encoding 后，再和 target probe 一起打开。
          */
         return -2;
     }
 #else
     /*
-     * Returning unsupported with a zero value makes host probes deterministic
-     * and keeps accidental target-only register access visible in tests.
+     * host 读返回 unsupported 且把值清零，使 probe 确定可重复，也让误用
+     * target-only 寄存器访问能在测试里暴露出来。
      */
     (void)reg;
     *value = 0;
@@ -139,7 +136,7 @@ static inline int ete_trbe_sysreg_write(enum ete_trbe_sysreg_id reg,
         return -2;
     }
 #else
-    /* Host builds never write architectural trace registers. */
+    /* host 构建绝不写架构 trace 寄存器。 */
     (void)reg;
     (void)value;
     return -2;

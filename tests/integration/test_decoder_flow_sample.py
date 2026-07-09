@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Explicit host-only decoder integration sample.
+"""显式运行的 host-only decoder integration sample。
 
-This script is intentionally not registered in default CTest/Makefile tests.
-Run it manually when you want an end-to-end synthetic decoder check.
+这个脚本刻意不注册进默认 CTest/Makefile 测试。需要做端到端 synthetic
+decoder 检查时手动运行。
 """
 
 import json
